@@ -114,6 +114,13 @@ def dispatcher(args: argparse.Namespace) -> None:
             MtgjsonConfig().output_path, args.aws_s3_upload_bucket, {"Prunable": "true"}
         )
 
+def my_main() -> None:
+    from mtgjson5.output_generator import (
+        build_decks_files,
+    )
+
+    build_decks_files()
+
 
 def main() -> None:
     """
@@ -149,4 +156,5 @@ def main() -> None:
 if __name__ == "__main__":
     init_logger()
     LOGGER: logging.Logger = logging.getLogger(__name__)
-    main()
+    #main()
+    my_main()

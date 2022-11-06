@@ -17,6 +17,7 @@ from ..utils import parallel_call, retryable_session
 
 LOGGER = logging.getLogger(__name__)
 
+SHOULD_DOWNLOAD = False
 
 @singleton
 class GitHubDecksProvider(AbstractProvider):
@@ -49,6 +50,12 @@ class GitHubDecksProvider(AbstractProvider):
         :param url: Download URL
         :param params: Options for URL download
         """
+        if not SHOULD_DOWNLOAD:
+            print("USING LOCAL decks.json")
+            deck_j_path = "/home/david/Dev/magic-preconstructed-decks-data/decks_v2.json"
+            with open(deck_j_path, "r") as f:
+                return json.load(f)
+
         session = retryable_session()
 
         response = session.get(url)

@@ -4,7 +4,9 @@ MTGJSON output generator to write out contents to file & accessory methods
 import json
 import logging
 import pathlib
-from typing import Any, Dict, List
+import shutil
+import subprocess
+from typing import Any, Dict, List, Union
 
 from . import constants
 from .classes import MtgjsonDeckHeaderObject, MtgjsonMetaObject
@@ -422,3 +424,74 @@ def write_to_file(
             ensure_ascii=False,
             default=lambda o: o.to_json(),
         )
+
+
+def build_decks_files() -> None:
+    print("CUSTOM BUILDING DECK FILES")
+    pretty_print = True
+
+    # All Pre-constructed Decks
+    deck_names = []
+    for mtgjson_deck_obj in GitHubDecksProvider().iterate_precon_decks():
+        mtgjson_deck_header_obj = MtgjsonDeckHeaderObject(mtgjson_deck_obj)
+        create_compiled_output(
+            f"decks/{mtgjson_deck_header_obj.file_name}",
+            mtgjson_deck_obj,
+            pretty_print,
+        )
+        deck_names.append(mtgjson_deck_header_obj)
+
+    # DeckList.json
+    create_compiled_output(
+        MtgjsonStructuresObject().deck_list,
+        MtgjsonDeckListObject(deck_names),
+        pretty_print,
+    )
+
+    directory = MtgjsonConfig().output_path
+    deck_files = list(directory.joinpath("decks").glob("*.json"))
+    _compress_mtgjson_directory(
+            deck_files, directory, MtgjsonStructuresObject().all_decks_directory
+        )
+
+
+def _compress_mtgjson_directory(
+    files: List[pathlib.Path], directory: pathlib.Path, output_file: str
+) -> None:
+    """
+    Create a temporary directory of files to be compressed
+    :param files: Files to compress into a single archive
+    :param directory: Directory to dump archive into
+    :param output_file: Output archive name
+    """
+    temp_dir = directory.joinpath(output_file)
+
+    LOGGER.info(f"Creating temporary directory {output_file}")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    for file in files:
+        shutil.copy(str(file), str(temp_dir))
+
+    LOGGER.info(f"Compressing {output_file}")
+
+    compression_commands: List[List[Union[str, pathlib.Path]]] = [
+        # ["tar", "-jcf", f"{temp_dir}.tar.bz2", "-C", temp_dir.parent, temp_dir.name],
+        # ["tar", "-Jcf", f"{temp_dir}.tar.xz", "-C", temp_dir.parent, temp_dir.name],
+        ["tar", "-zcf", f"{temp_dir}.tar.gz", "-C", temp_dir.parent, temp_dir.name],
+        # ["zip", "-rj", f"{temp_dir}.zip", temp_dir],
+    ]
+    _compressor(compression_commands)
+
+    LOGGER.info(f"Removing temporary directory {output_file}")
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+def _compressor(compression_commands: List[List[Union[str, pathlib.Path]]]) -> None:
+    """
+    Execute a series of compression commands in true parallel
+    :param compression_commands: Function to compress with
+    """
+    # Compress the file in parallel outside of Python
+    # Multiprocessing cannot be used with gevent
+    for command in compression_commands:
+        with subprocess.Popen(command, stdout=subprocess.DEVNULL) as proc:
+            if proc.wait() != 0:
+                LOGGER.error(f"Failed to compress {str(proc.args)}")
