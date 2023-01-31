@@ -11,7 +11,13 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import requests
 from singleton_decorator import singleton
 
-from ..classes import MtgjsonPricesObject, MtgjsonSealedProductObject
+from .. import constants
+from ..classes import (
+    MtgjsonPricesObject,
+    MtgjsonSealedProductCategory,
+    MtgjsonSealedProductObject,
+    MtgjsonSealedProductSubtype,
+)
 from ..mtgjson_config import MtgjsonConfig
 from ..providers.abstract import AbstractProvider
 from ..utils import generate_card_mapping, parallel_call, retryable_session
@@ -100,6 +106,13 @@ class TCGPlayerProvider(AbstractProvider):
         "3x Magic Booster Packs",
         "Booster Battle Pack",
     ]
+    product_default_size = {
+        "set": 30,
+        "collector": 12,
+        "draft": 36,
+        "jumpstart": 18,
+        "theme": 12,
+    }
 
     def __init__(self) -> None:
         """
@@ -129,8 +142,8 @@ class TCGPlayerProvider(AbstractProvider):
             return ""
 
         if not (
-            MtgjsonConfig().get("TCGPlayer", "client_id")
-            and MtgjsonConfig().get("TCGPlayer", "client_secret")
+            MtgjsonConfig().has_option("TCGPlayer", "client_id")
+            and MtgjsonConfig().has_option("TCGPlayer", "client_secret")
         ):
             LOGGER.warning("TCGPlayer keys not established. Skipping requests")
             self.__keys_found = False
@@ -144,18 +157,26 @@ class TCGPlayerProvider(AbstractProvider):
                 "client_id": MtgjsonConfig().get("TCGPlayer", "client_id"),
                 "client_secret": MtgjsonConfig().get("TCGPlayer", "client_secret"),
             },
+            timeout=60,
         )
 
         if not tcg_post.ok:
             LOGGER.error(f"Unable to contact TCGPlayer. Reason: {tcg_post.reason}")
             return ""
 
-        self.api_version = MtgjsonConfig().get("TCGPlayer", "api_version")
+        api_version = MtgjsonConfig().has_option("TCGPlayer", "api_version")
+        self.api_version = (
+            MtgjsonConfig().get("TCGPlayer", "api_version")
+            if api_version
+            else "v1.39.0"
+        )
         request_as_json = json.loads(tcg_post.text)
 
         return str(request_as_json.get("access_token", ""))
 
-    def download(self, url: str, params: Dict[str, Union[str, int]] = None) -> Any:
+    def download(
+        self, url: str, params: Optional[Dict[str, Union[str, int]]] = None
+    ) -> Any:
         """
         Download content from Scryfall
         Api calls always return JSON from Scryfall
@@ -216,6 +237,13 @@ class TCGPlayerProvider(AbstractProvider):
         tcg_to_mtgjson_map = generate_card_mapping(
             all_printings_path, ("identifiers", "tcgplayerProductId"), ("uuid",)
         )
+        tcg_to_mtgjson_map.update(
+            generate_card_mapping(
+                all_printings_path,
+                ("identifiers", "tcgplayerEtchedProductId"),
+                ("uuid",),
+            )
+        )
 
         LOGGER.info("Building TCGPlayer buylist data")
         buylist_dict = parallel_call(
@@ -246,8 +274,199 @@ class TCGPlayerProvider(AbstractProvider):
 
         return dict(combined_listings)
 
+    def determine_mtgjson_sealed_product_category(
+        self, product_name: str
+    ) -> MtgjsonSealedProductCategory:
+        """
+        Best-effort to parse the product name and determine the sealed product category
+        :param product_name Name of the product from TCG, must be lowercase
+        :return: category
+        """
+
+        # The order of the checks is important: for example, we need to catch all 'case'
+        # products before everything else, since "booster box case" would be caught in
+        # the 'booster box' check. The same applies to several sub products, such as
+        # 'prerelease' (vs guild kit), 'box set' (vs set boosters), and so on.
+        if any(
+            tag in product_name
+            for tag in [
+                "booster case",
+                "box case",
+                "bundle case",
+                "display case",
+                "intro display",
+                "intro pack display",
+                "pack box",
+                "pack case",
+                "tournament pack display",
+                "vip edition box",
+            ]
+        ):
+            return MtgjsonSealedProductCategory.CASE
+
+        if any(
+            tag in product_name
+            for tag in ["booster box", "booster display", "mythic edition"]
+        ):
+            return MtgjsonSealedProductCategory.BOOSTER_BOX
+
+        if any(
+            tag in product_name
+            for tag in [
+                "booster pack",
+                "booster retail pack",
+                "box topper",
+                "hanger pack",
+                "omega pack",
+                "promo pack",
+                "theme booster",
+                "vip edition pack",
+            ]
+        ):
+            if "set of" in product_name:
+                return MtgjsonSealedProductCategory.SUBSET
+            return MtgjsonSealedProductCategory.BOOSTER_PACK
+
+        if "prerelease" in product_name:
+            return MtgjsonSealedProductCategory.PRERELEASE_PACK
+
+        if any(
+            tag in product_name
+            for tag in [
+                "blister pack",
+                "draft pack",
+                "draft set",
+                "multipack",
+            ]
+        ):
+            return MtgjsonSealedProductCategory.DRAFT_SET
+
+        if any(
+            tag in product_name
+            for tag in [
+                "booster battle pack",
+                "clash pack",
+                "fourth edition gift box",
+                "quick start set",
+                "two player starter",
+            ]
+        ):
+            return MtgjsonSealedProductCategory.TWO_PLAYER_STARTER_SET
+
+        if any(
+            tag in product_name
+            for tag in [
+                "box set",
+                "builders toolkit",
+                "commander collection",
+                "deckmasters tin",
+                "deluxe collection",
+                "edition box",
+                "game night",
+                "global series",
+                "hascon",
+                "modern event deck",
+                "planechase",
+                "planeswalker set",
+                "premium deck series",
+                "sdcc",
+                "secret lair",
+                "signature spellbook",
+            ]
+        ):
+            # In this section, only Planechase may have a "set of"
+            if "planechase" in product_name and "set of" in product_name:
+                return MtgjsonSealedProductCategory.CASE
+            return MtgjsonSealedProductCategory.BOX_SET
+
+        if "commander" in product_name or "brawl deck" in product_name:
+            if "set of" in product_name:
+                return MtgjsonSealedProductCategory.CASE
+            return MtgjsonSealedProductCategory.COMMANDER_DECK
+
+        if "deck box" in product_name or "deck display" in product_name:
+            return MtgjsonSealedProductCategory.DECK_BOX
+
+        if any(
+            tag in product_name
+            for tag in [
+                "challenge deck",
+                "challenger deck",
+                "championship deck",
+                "event deck",
+                "guild kit",
+                "intro pack",
+                "planeswalker deck",
+                "starter deck",
+                "theme deck",
+                "tournament deck",
+                "tournament pack",
+            ]
+        ):
+            if "set of" in product_name:
+                return MtgjsonSealedProductCategory.SUBSET
+            return MtgjsonSealedProductCategory.DECK
+
+        if any(
+            tag in product_name
+            for tag in [
+                "bundle",
+                "fat pack",
+                "gift box",
+            ]
+        ):
+            return MtgjsonSealedProductCategory.BUNDLE
+
+        if "land station" in product_name:
+            return MtgjsonSealedProductCategory.LAND_STATION
+
+        return MtgjsonSealedProductCategory.UNKNOWN
+
+    # Best-effort to parse the product name and determine the sealed product category
+    def determine_mtgjson_sealed_product_subtype(
+        self, product_name: str, category: MtgjsonSealedProductCategory
+    ) -> MtgjsonSealedProductSubtype:
+        """
+        Best-effort to parse the product name and determine the sealed product subtype
+        :param product_name Name of the product from TCG
+        :param category Category as parsed from determine_mtgjson_sealed_product_category()
+        :return: subtype
+        """
+        if category == MtgjsonSealedProductCategory.UNKNOWN:
+            return MtgjsonSealedProductSubtype.UNKNOWN
+
+        for subtype in MtgjsonSealedProductSubtype:
+            if subtype is MtgjsonSealedProductSubtype.UNKNOWN:
+                continue
+
+            # Prevent aliasing from Eventide
+            if (
+                subtype is MtgjsonSealedProductSubtype.EVENT
+                and category is not MtgjsonSealedProductCategory.DECK
+            ):
+                continue
+
+            # Prevent assigning 'set' (for set boosters) to unrelated categories
+            if subtype is MtgjsonSealedProductSubtype.SET and (
+                category is not MtgjsonSealedProductCategory.BOOSTER_PACK
+                and category is not MtgjsonSealedProductCategory.BOOSTER_BOX
+            ):
+                continue
+
+            # Do the replace to use the tag as text
+            if subtype.value.replace("_", " ") in product_name:
+                return subtype
+
+        # Special handling because sometimes 'draft' is not tagged
+        if category in [
+            MtgjsonSealedProductCategory.BOOSTER_BOX,
+            MtgjsonSealedProductCategory.BOOSTER_PACK,
+        ]:
+            return MtgjsonSealedProductSubtype.DRAFT
+        return MtgjsonSealedProductSubtype.UNKNOWN
+
     def generate_mtgjson_sealed_product_objects(
-        self, group_id: Optional[int]
+        self, group_id: Optional[int], set_code: str
     ) -> List[MtgjsonSealedProductObject]:
         """
         Builds MTGJSON Sealed Product Objects from TCGPlayer data
@@ -266,11 +485,48 @@ class TCGPlayerProvider(AbstractProvider):
 
         mtgjson_sealed_products = []
 
+        with constants.RESOURCE_PATH.joinpath("sealed_name_fixes.json").open(
+            encoding="utf-8"
+        ) as f:
+            sealed_name_fixes = json.load(f)
+
+        with constants.RESOURCE_PATH.joinpath("booster_box_size_overrides.json").open(
+            encoding="utf-8"
+        ) as f:
+            booster_box_size_overrides = json.load(f)
+
         for product in sealed_data:
             sealed_product = MtgjsonSealedProductObject()
+
             sealed_product.name = product["cleanName"]
+            for tag, fix in sealed_name_fixes.items():
+                if tag in sealed_product.name:
+                    sealed_product.name = sealed_product.name.replace(tag, fix)
+
             sealed_product.identifiers.tcgplayer_product_id = str(product["productId"])
             sealed_product.release_date = product["presaleInfo"].get("releasedOn")
+
+            sealed_product.category = self.determine_mtgjson_sealed_product_category(
+                sealed_product.name.lower()
+            )
+            sealed_product.subtype = self.determine_mtgjson_sealed_product_subtype(
+                sealed_product.name.lower(), sealed_product.category
+            )
+
+            LOGGER.debug(
+                f"{sealed_product.name}: {sealed_product.category.value}.{sealed_product.subtype.value}"
+            )
+
+            if sealed_product.category == MtgjsonSealedProductCategory.BOOSTER_BOX:
+                sealed_product.product_size = int(
+                    booster_box_size_overrides.get(
+                        sealed_product.subtype.value, {}
+                    ).get(
+                        set_code,
+                        self.product_default_size.get(sealed_product.subtype.value, 0),
+                    )
+                )
+
             if sealed_product.release_date is not None:
                 sealed_product.release_date = sealed_product.release_date[0:10]
             sealed_product.raw_purchase_urls[

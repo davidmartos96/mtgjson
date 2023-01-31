@@ -18,11 +18,11 @@ from mkmsdk.api_map import _API_MAP
 from mkmsdk.mkm import Mkm
 from singleton_decorator import singleton
 
-from .. import constants
-from ..classes import MtgjsonPricesObject
-from ..mtgjson_config import MtgjsonConfig
-from ..providers.abstract import AbstractProvider
-from ..utils import generate_card_mapping
+from ... import constants
+from ...classes import MtgjsonPricesObject
+from ...mtgjson_config import MtgjsonConfig
+from ...providers.abstract import AbstractProvider
+from ...utils import generate_card_mapping
 
 LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class CardMarketProvider(AbstractProvider):
 
     __keys_found: bool
 
-    def __init__(self, headers: Dict[str, str] = None):
+    def __init__(self, headers: Optional[Dict[str, str]] = None):
         super().__init__(headers or {})
 
         if not MtgjsonConfig().has_section("CardMarket"):
@@ -63,7 +63,7 @@ class CardMarketProvider(AbstractProvider):
         self.__keys_found = True
 
         self.connection = Mkm(_API_MAP["2.0"]["api"], _API_MAP["2.0"]["api_root"])
-        self.set_map = {}
+        self.set_map = dict()
         self.__init_set_map()
 
     def _get_card_market_data(self) -> io.StringIO:
@@ -226,7 +226,9 @@ class CardMarketProvider(AbstractProvider):
         """
         return {}
 
-    def download(self, url: str, params: Dict[str, Union[str, int]] = None) -> Any:
+    def download(
+        self, url: str, params: Optional[Dict[str, Union[str, int]]] = None
+    ) -> Any:
         """
         Download Content -- Not Used
         :param url:

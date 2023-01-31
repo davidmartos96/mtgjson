@@ -8,12 +8,13 @@ from typing import Optional
 
 import boto3
 import botocore.exceptions
+from singleton_decorator import singleton
 
 from mtgjson5 import constants
-from mtgjson5.singleton import Singleton
 
 
-class MtgjsonConfig(metaclass=Singleton):
+@singleton
+class MtgjsonConfig:
     """
     Configuration Class that loads in the appropriate configuration file
     and provides the contents for the running program
@@ -40,7 +41,9 @@ class MtgjsonConfig(metaclass=Singleton):
             self.__load_config_from_local_file(constants.CONFIG_PATH)
 
         try:
-            self.mtgjson_version = self.config_parser.get("MTGJSON", "version")
+            self.mtgjson_version = self.config_parser.get(
+                "MTGJSON", "version", fallback="NO_VERSION_FOUND"
+            )
             if aws_ssm_config_name:
                 self.mtgjson_version += (
                     f"+{constants.MTGJSON_BUILD_DATE.replace('-', '')}"
@@ -53,7 +56,7 @@ class MtgjsonConfig(metaclass=Singleton):
                 f"5.X.X+{constants.MTGJSON_BUILD_DATE.replace('-', '')}"
             )
 
-        self.use_cache = self.get_boolean("MTGJSON", "use_cache", fallback=False)
+        self.use_cache = self.get_boolean("MTGJSON", "use_cache", False)
         self.output_path = constants.ENV_OUT_PATH.joinpath(
             f"mtgjson_build_{self.mtgjson_version}"
         )
@@ -87,7 +90,9 @@ class MtgjsonConfig(metaclass=Singleton):
         :param fallback: Default value to use if key not found in section
         :returns Configuration value to use
         """
-        return self.config_parser.get(section, option, fallback=fallback)
+        if self.has_option(section, option):
+            return self.config_parser.get(section, option, fallback=fallback)
+        return fallback
 
     def get_boolean(self, section: str, option: str, fallback: bool = False) -> bool:
         """
@@ -97,7 +102,9 @@ class MtgjsonConfig(metaclass=Singleton):
         :param fallback: Default value to use if key not found in section
         :returns Configuration value to use (as a Boolean)
         """
-        return self.config_parser.getboolean(section, option, fallback=fallback)
+        if self.has_option(section, option):
+            return self.config_parser.getboolean(section, option, fallback=fallback)
+        return fallback
 
     def has_section(self, section: str) -> bool:
         """
@@ -110,8 +117,12 @@ class MtgjsonConfig(metaclass=Singleton):
     def has_option(self, section: str, option: str) -> bool:
         """
         Check if Configuration has a specific option in a specific section
+        and has a defined value (ala not VAR=)
         :param section: Section header to find
         :param option: Option to find in section
         :return Does option exist in section
         """
-        return self.config_parser.has_option(section, option)
+        return (
+            self.config_parser.has_option(section, option)
+            and len(str(self.config_parser.get(section, option))) > 0
+        )

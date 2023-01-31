@@ -36,11 +36,13 @@ class MtgjsonCardObject:
     count: int
     duel_deck: Optional[str]
     edhrec_rank: Optional[int]
+    edhrec_saltiness: Optional[float]
     face_converted_mana_cost: float
     face_flavor_name: Optional[str]
     face_mana_value: float
     face_name: Optional[str]
     finishes: List[str]
+    first_printing: Optional[str]
     flavor_name: Optional[str]
     flavor_text: Optional[str]
     foreign_data: List[MtgjsonForeignDataObject]
@@ -61,7 +63,7 @@ class MtgjsonCardObject:
     is_rebalanced: Optional[bool]
     is_reprint: Optional[bool]
     is_reserved: Optional[bool]
-    is_starter: Optional[bool]
+    is_starter: Optional[bool]  # Deprecated - Remove in 5.3.0
     is_story_spotlight: Optional[bool]
     is_textless: Optional[bool]
     is_timeshifted: Optional[bool]
@@ -94,6 +96,7 @@ class MtgjsonCardObject:
     security_stamp: Optional[str]
     side: Optional[str]
     signature: Optional[str]
+    subset: Optional[List[str]]
     subtypes: List[str]
     supertypes: List[str]
     text: str
@@ -152,6 +155,7 @@ class MtgjsonCardObject:
         "converted_mana_cost",
         "count",
         "edhrec_rank",
+        "edhrec_saltiness",
         "face_converted_mana_cost",
         "face_mana_value",
         "face_name",
@@ -159,6 +163,7 @@ class MtgjsonCardObject:
         "hand",
         "has_alternative_deck_limit",
         "identifiers",
+        "is_funny",
         "is_reserved",
         "keywords",
         "layout",

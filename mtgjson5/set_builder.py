@@ -24,14 +24,17 @@ from .classes import (
 )
 from .providers import (
     CardMarketProvider,
+    CardMarketProviderSetNameTranslations,
+    EdhrecProviderCardRanks,
+    FandomProviderSecretLair,
     GathererProvider,
     GitHubBoostersProvider,
     MTGBanProvider,
     MultiverseBridgeProvider,
     ScryfallProvider,
+    ScryfallProviderSetLanguageDetector,
     TCGPlayerProvider,
     WhatsInStandardProvider,
-    WizardsProvider,
 )
 from .utils import get_str_or_none, parallel_call, url_keygen
 
@@ -412,11 +415,18 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     mtgjson_set.is_foil_only = set_data.get("foil_only", "")
     mtgjson_set.is_non_foil_only = set_data.get("nonfoil_only", "")
     mtgjson_set.search_uri = set_data["search_uri"]
+    mtgjson_set.languages = (
+        ScryfallProviderSetLanguageDetector().get_set_printing_languages(
+            mtgjson_set.code
+        )
+    )
     mtgjson_set.mcm_name = CardMarketProvider().get_set_name(mtgjson_set.name)
     mtgjson_set.mcm_id = CardMarketProvider().get_set_id(mtgjson_set.name)
     mtgjson_set.mcm_id_extras = CardMarketProvider().get_extras_set_id(mtgjson_set.name)
-    mtgjson_set.translations = WizardsProvider().get_translation_for_set(
-        mtgjson_set.code
+    mtgjson_set.translations = (
+        CardMarketProviderSetNameTranslations().get_set_translation_object(
+            mtgjson_set.code
+        )
     )
 
     # Building cards is a process
@@ -429,8 +439,14 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     add_mcm_details(mtgjson_set)
     add_card_kingdom_details(mtgjson_set)
 
+    if mtgjson_set.code in {"CN2", "FRF", "ONS", "10E", "UNH"}:
+        link_same_card_different_details(mtgjson_set)
+
     if mtgjson_set.code in {"EMN", "BRO"}:
         add_meld_face_parts(mtgjson_set)
+
+    if mtgjson_set.code in {"SLD"}:
+        add_secret_lair_names(mtgjson_set)
 
     base_total_sizes = get_base_and_total_set_sizes(mtgjson_set)
     mtgjson_set.base_set_size = base_total_sizes[0]
@@ -443,6 +459,8 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     mtgjson_set.tokens = build_base_mtgjson_tokens(
         f"T{set_code}", mtgjson_set.extra_tokens or []
     )
+    if mtgjson_set.tokens:
+        mtgjson_set.token_set_code = mtgjson_set.tokens[0].set_code
 
     add_other_face_ids(mtgjson_set.tokens)
 
@@ -452,7 +470,7 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     # Build sealed product using the TCGPlayer data
     mtgjson_set.sealed_product = (
         TCGPlayerProvider().generate_mtgjson_sealed_product_objects(
-            mtgjson_set.tcgplayer_group_id
+            mtgjson_set.tcgplayer_group_id, mtgjson_set.code
         )
     )
     add_sealed_uuid(mtgjson_set)
@@ -505,7 +523,7 @@ def add_sealed_purchase_url(mtgjson_set: MtgjsonSetObject) -> None:
 
 def build_base_mtgjson_cards(
     set_code: str,
-    additional_cards: List[Dict[str, Any]] = None,
+    additional_cards: Optional[List[Dict[str, Any]]] = None,
     is_token: bool = False,
     set_release_date: str = "",
 ) -> List[MtgjsonCardObject]:
@@ -694,7 +712,9 @@ def build_mtgjson_card(
     mtgjson_card.flavor_name = scryfall_object.get("flavor_name")
     mtgjson_card.set_code = scryfall_object["set"].upper()
     mtgjson_card.identifiers.scryfall_id = scryfall_object["id"]
-    mtgjson_card.identifiers.scryfall_oracle_id = scryfall_object.get("oracle_id")
+    mtgjson_card.identifiers.scryfall_oracle_id = (
+        scryfall_object.get("oracle_id")
+    ) or scryfall_object["card_faces"][face_id].get("oracle_id")
 
     # Handle atypical cards
     face_data = scryfall_object
@@ -784,6 +804,9 @@ def build_mtgjson_card(
         # Deprecated - Remove in 6.0.0
         mtgjson_card.converted_mana_cost = scryfall_object.get("cmc", "")
     mtgjson_card.edhrec_rank = scryfall_object.get("edhrec_rank")
+    mtgjson_card.edhrec_saltiness = EdhrecProviderCardRanks().get_salt_rating(
+        mtgjson_card.name
+    )
     mtgjson_card.finishes = scryfall_object.get("finishes", [])
     mtgjson_card.frame_effects = scryfall_object.get("frame_effects", "")
     mtgjson_card.frame_version = scryfall_object.get("frame", "")
@@ -944,7 +967,7 @@ def build_mtgjson_card(
                     mtgjson_card.identifiers.scryfall_illustration_id is None
                     and "Missing" in face_illustration_ids
                 ):
-                    mtgjson_card.side = "b"
+                    mtgjson_card.side = chr(face_id + 97)
             else:
                 # Standard flip cards and such
                 # chr(97) = 'a', chr(98) = 'b', ...
@@ -963,7 +986,11 @@ def build_mtgjson_card(
     mtgjson_card.printings = parse_printings(
         scryfall_object["prints_search_uri"].replace("%22", "")
     )
-    mtgjson_card.legalities = parse_legalities(scryfall_object["legalities"])
+    mtgjson_card.legalities = parse_legalities(
+        scryfall_object["legalities"]
+        if scryfall_object.get("set_type") not in ["memorabilia"]
+        else {}
+    )
     mtgjson_card.rulings = parse_rulings(scryfall_object["rulings_uri"])
 
     card_types = parse_card_types(mtgjson_card.type)
@@ -1091,6 +1118,8 @@ def add_variations_and_alternative_fields(mtgjson_set: MtgjsonSetObject) -> None
         return
 
     LOGGER.info(f"Adding variations for {mtgjson_set.code}")
+
+    distinct_card_printings_found: Set[str] = set()
     for this_card in mtgjson_set.cards:
         # Adds variations
         variations = [
@@ -1110,39 +1139,19 @@ def add_variations_and_alternative_fields(mtgjson_set: MtgjsonSetObject) -> None
         if not variations or this_card.name in constants.BASIC_LAND_NAMES:
             continue
 
-        # Some hardcoded checking due to inconsistencies upstream
-        if mtgjson_set.code.upper() in {"UNH", "10E"}:
-            # Check for duplicates, mark the foils
-            if (
-                len(variations) >= 1
-                and this_card.has_foil
-                and not this_card.has_non_foil
-            ):
-                this_card.is_alternative = True
-        elif mtgjson_set.code.upper() in {"CN2", "BBD", "JMP", "2XM", "2X2"}:
-            # Check for set number > set size, remove asterisk before comparison
-            card_number = int(this_card.number.replace(chr(9733), ""))
-            if card_number > mtgjson_set.base_set_size:
-                this_card.is_alternative = True
-        elif mtgjson_set.code.upper() in {"CMR"}:
-            # Mark duplicated non-promotional identical cards
-            for other_card in mtgjson_set.cards:
-                if (
-                    other_card.uuid == this_card.uuid
-                    or other_card.name != this_card.name
-                    or other_card.promo_types
-                    or this_card.promo_types
-                ):
-                    continue
+        # In each set, a card has to be unique by all of these attributes
+        # otherwise, it's an alternative printing
+        distinct_card_printing = (
+            f"{this_card.name}|{this_card.border_color}|{this_card.frame_version}|"
+            f"{','.join(this_card.frame_effects)}|{this_card.side}"
+        )
+        if this_card.set_code in {"UNH", "10E"}:
+            distinct_card_printing += f"|{','.join(this_card.finishes)}"
 
-                # Check for set number > set size, remove asterisk before comparison
-                card_number = int(this_card.number.replace(chr(9733), ""))
-                if card_number > mtgjson_set.base_set_size:
-                    this_card.is_alternative = True
+        if distinct_card_printing in distinct_card_printings_found:
+            this_card.is_alternative = True
         else:
-            # Check for an asterisk in the number
-            if chr(9733) in this_card.number:
-                this_card.is_alternative = True
+            distinct_card_printings_found.add(distinct_card_printing)
 
     LOGGER.info(f"Finished adding variations for {mtgjson_set.code}")
 
@@ -1181,6 +1190,36 @@ def add_other_face_ids(cards_to_act_on: List[MtgjsonCardObject]) -> None:
                     # No number? No problem, just add it!
                     this_card.other_face_ids.append(other_card.uuid)
     LOGGER.info("Finished adding otherFaceIds to group")
+
+
+def link_same_card_different_details(mtgjson_set: MtgjsonSetObject) -> None:
+    """
+    In several Magic sets, the foil and non-foil printings have different text
+    (See 10th Edition, for example). If that's the case, we will link the
+    Foil and NonFoil versions together in the identifiers for easier user management
+    :param mtgjson_set: MTGJSON Set
+    """
+    LOGGER.info(f"Linking multiple printings for {mtgjson_set.code}")
+    cards_seen = {}
+
+    for mtgjson_card in mtgjson_set.cards:
+        if mtgjson_card.identifiers.scryfall_illustration_id not in cards_seen:
+            cards_seen[mtgjson_card.identifiers.scryfall_illustration_id] = mtgjson_card
+            continue
+
+        other_mtgjson_card = cards_seen[
+            mtgjson_card.identifiers.scryfall_illustration_id
+        ]
+        if "nonfoil" in mtgjson_card.finishes:
+            other_mtgjson_card.identifiers.mtgjson_non_foil_version_id = (
+                mtgjson_card.uuid
+            )
+            mtgjson_card.identifiers.mtgjson_foil_version_id = other_mtgjson_card.uuid
+        else:
+            other_mtgjson_card.identifiers.mtgjson_foil_version_id = mtgjson_card.uuid
+            mtgjson_card.identifiers.mtgjson_non_foil_version_id = (
+                other_mtgjson_card.uuid
+            )
 
 
 def add_card_kingdom_details(mtgjson_set: MtgjsonSetObject) -> None:
@@ -1472,6 +1511,20 @@ def add_meld_face_parts(mtgjson_set: MtgjsonSetObject) -> None:
 
         first_card.card_parts = [x for x in card_face_parts if x]
     LOGGER.info(f"Finished adding Card Face Parts for {mtgjson_set.code}")
+
+
+def add_secret_lair_names(mtgjson_set: MtgjsonSetObject) -> None:
+    """
+    Secret Lairs don't have a native way to know what printing(s) they were in,
+    so we will map them to the Fandom wiki to support this functionality
+    :param mtgjson_set: MTGJSON Set Object
+    """
+    LOGGER.info(f"Linking Secret Lair Drops to {mtgjson_set.code}")
+    relation_map = FandomProviderSecretLair().download()
+    for card in mtgjson_set.cards:
+        if card.number in relation_map:
+            card.subset = [relation_map[card.number]]
+    LOGGER.info(f"Finished Linking Secret Lair Drops to {mtgjson_set.code}")
 
 
 def add_related_cards(

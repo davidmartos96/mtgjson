@@ -11,10 +11,10 @@ from typing import Any, Dict, List, Optional, Set, Union
 import ratelimit
 from singleton_decorator import singleton
 
-from .. import constants
-from ..mtgjson_config import MtgjsonConfig
-from ..providers.abstract import AbstractProvider
-from ..utils import retryable_session
+from ... import constants
+from ...mtgjson_config import MtgjsonConfig
+from ...providers.abstract import AbstractProvider
+from ...utils import retryable_session
 
 LOGGER = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class ScryfallProvider(AbstractProvider):
             )
             return {}
 
-        if not MtgjsonConfig().get("Scryfall", "client_secret"):
+        if not MtgjsonConfig().has_option("Scryfall", "client_secret"):
             LOGGER.warning(
                 "Scryfall keys values missing. Defaulting to non-authorized mode"
             )
@@ -67,7 +67,9 @@ class ScryfallProvider(AbstractProvider):
         return headers
 
     def download_all_pages(
-        self, starting_url: Optional[str], params: Dict[str, Union[str, int]] = None
+        self,
+        starting_url: Optional[str],
+        params: Optional[Dict[str, Union[str, int]]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Connects to Scryfall API and goes through all redirects to get the
@@ -105,7 +107,9 @@ class ScryfallProvider(AbstractProvider):
 
     @ratelimit.sleep_and_retry
     @ratelimit.limits(calls=40, period=1)
-    def download(self, url: str, params: Dict[str, Union[str, int]] = None) -> Any:
+    def download(
+        self, url: str, params: Optional[Dict[str, Union[str, int]]] = None
+    ) -> Any:
         """
         Download content from Scryfall
         Api calls always return JSON from Scryfall

@@ -4,7 +4,7 @@ MTGJSON AtomicCards Object
 import json
 import re
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ..classes import MtgjsonCardObject
 from ..mtgjson_config import MtgjsonConfig
@@ -20,7 +20,7 @@ class MtgjsonAtomicCardsObject:
     atomic_cards_dict: Dict[str, List[Dict[str, Any]]]
     __name_regex = re.compile(r"^([^\n]+) \([a-z]\)$")
 
-    def __init__(self, cards_to_parse: List[Dict[str, Any]] = None) -> None:
+    def __init__(self, cards_to_parse: Optional[List[Dict[str, Any]]] = None) -> None:
         """
         Initializer to build up the object
         """
@@ -30,10 +30,12 @@ class MtgjsonAtomicCardsObject:
         )
 
     def iterate_all_cards(
-        self, files_to_ignore: List[str], cards_to_load: List[Dict[str, Any]] = None
+        self,
+        files_to_ignore: List[str],
+        cards_to_load: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """
-        Iterate and all all MTGJSON sets to the dictionary
+        Iterate all MTGJSON sets in the dictionary
         indexed by file name
         :param files_to_ignore: Files to skip
         :param cards_to_load: Cards to use instead of files
@@ -60,8 +62,15 @@ class MtgjsonAtomicCardsObject:
                 if token.get("type") == "Dungeon"
             ]
             for dungeon in dungeons:
-                dungeon["manaValue"] = 0.0
-                dungeon["convertedManaCost"] = 0.0
+                dungeon.update(
+                    {
+                        "manaValue": 0.0,
+                        "convertedManaCost": 0.0,
+                        "legalities": {},
+                        "purchaseUrls": {},
+                        "rulings": [],
+                    }
+                )
 
             valid_cards.extend(dungeons)
 
@@ -102,10 +111,22 @@ class MtgjsonAtomicCardsObject:
             should_add_card = True
             for card_entry in self.atomic_cards_dict[card_name]:
                 if card_entry.get("text") == atomic_card.get("text"):
+                    # Some printings might not have foreign data or legalities, so we ensure they're established
+                    for field_to_copy in ["foreignData", "legalities"]:
+                        if not card_entry.get(field_to_copy):
+                            card_entry[field_to_copy] = atomic_card.get(field_to_copy)
+
+                    # If the newly added card is the original printing, lets set it
+                    if not card.get("isReprint"):
+                        card_entry["firstPrinting"] = card.get("setCode")
                     should_add_card = False
                     break
 
             if should_add_card:
+                # Sometimes, the first card added _is_ the original printing
+                if not card.get("isReprint"):
+                    atomic_card["firstPrinting"] = card.get("setCode")
+
                 self.atomic_cards_dict[card_name].append(atomic_card)
                 self.atomic_cards_dict[card_name].sort(key=lambda x: x.get("side", "z"))
 
