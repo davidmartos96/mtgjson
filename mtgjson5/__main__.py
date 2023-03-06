@@ -1,6 +1,7 @@
 """
 MTGJSON Main Executor
 """
+import sys
 import gevent.monkey  # isort:skip
 
 gevent.monkey.patch_all()  # isort:skip
@@ -8,6 +9,7 @@ gevent.monkey.patch_all()  # isort:skip
 import argparse
 import logging
 import traceback
+import requests
 from typing import List, Set, Union
 
 from mtgjson5 import constants
@@ -117,7 +119,32 @@ def dispatcher(args: argparse.Namespace) -> None:
 def my_main() -> None:
     from mtgjson5.output_generator import (
         build_decks_files,
+        MtgjsonConfig
     )
+
+    args = sys.argv
+    
+    should_fetch_new_printings = False
+    if len(args) > 1:
+        argument = args[1]
+        if argument == "--fresh":
+            should_fetch_new_printings = True
+        else:
+            raise Exception(f"Unexpected {argument}. It should be '--fresh'") 
+
+    if should_fetch_new_printings:
+        url = "https://mtgjson.com/api/v5/AllPrintings.json"
+        print("FETCHING!!")
+
+        directory = MtgjsonConfig().output_path
+        all_printings_file = directory.joinpath("AllPrintings.json")
+
+        res = requests.get(url)
+
+        with open(all_printings_file, "wb") as f:
+            f.write(res.content)
+
+    
 
     build_decks_files()
 
