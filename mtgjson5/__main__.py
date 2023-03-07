@@ -10,6 +10,8 @@ import argparse
 import logging
 import traceback
 import requests
+import os.path
+import shutil
 from typing import List, Set, Union
 
 from mtgjson5 import constants
@@ -132,19 +134,22 @@ def my_main() -> None:
         else:
             raise Exception(f"Unexpected {argument}. It should be '--fresh'") 
 
+    build_dir = MtgjsonConfig().output_path
+
     if should_fetch_new_printings:
         url = "https://mtgjson.com/api/v5/AllPrintings.json"
         print("FETCHING!!")
-
-        directory = MtgjsonConfig().output_path
-        all_printings_file = directory.joinpath("AllPrintings.json")
+ 
+        all_printings_file = build_dir.joinpath("AllPrintings.json")
 
         res = requests.get(url)
 
         with open(all_printings_file, "wb") as f:
             f.write(res.content)
 
-    
+    decks_output = build_dir.joinpath("decks")
+    if os.path.isdir(decks_output):
+        shutil.rmtree(decks_output)
 
     build_decks_files()
 
