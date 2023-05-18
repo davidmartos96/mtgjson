@@ -5,16 +5,19 @@ import argparse
 import logging
 import pathlib
 import re
+import sys
 import time
 from typing import Any, Dict, List, Optional, Set, Union
 
 import ratelimit
+import requests.exceptions
 from singleton_decorator import singleton
 
 from ... import constants
 from ...mtgjson_config import MtgjsonConfig
 from ...providers.abstract import AbstractProvider
 from ...utils import retryable_session
+from . import sf_utils
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,27 +47,7 @@ class ScryfallProvider(AbstractProvider):
         self.cards_without_limits = set(self.generate_cards_without_limits())
 
     def _build_http_header(self) -> Dict[str, str]:
-        """
-        Construct the Authorization header for Scryfall
-        :return: Authorization header
-        """
-        if not MtgjsonConfig().has_section("Scryfall"):
-            LOGGER.warning(
-                "Scryfall section not established. Defaulting to non-authorized mode"
-            )
-            return {}
-
-        if not MtgjsonConfig().has_option("Scryfall", "client_secret"):
-            LOGGER.warning(
-                "Scryfall keys values missing. Defaulting to non-authorized mode"
-            )
-            return {}
-
-        headers: Dict[str, str] = {
-            "Authorization": f"Bearer {MtgjsonConfig().get('Scryfall', 'client_secret')}",
-            "Connection": "Keep-Alive",
-        }
-        return headers
+        return sf_utils.build_http_header()
 
     def download_all_pages(
         self,
@@ -108,18 +91,33 @@ class ScryfallProvider(AbstractProvider):
     @ratelimit.sleep_and_retry
     @ratelimit.limits(calls=40, period=1)
     def download(
-        self, url: str, params: Optional[Dict[str, Union[str, int]]] = None
+        self,
+        url: str,
+        params: Optional[Dict[str, Union[str, int]]] = None,
+        retry_ttl: int = 3,
     ) -> Any:
         """
         Download content from Scryfall
         Api calls always return JSON from Scryfall
         :param url: URL to download from
         :param params: Options for URL download
+        :param retry_ttl: How many times to retry if Chunk Error
         """
         session = retryable_session()
         session.headers.update(self.session_header)
-        response = session.get(url)
-        self.log_download(response)
+
+        try:
+            response = session.get(url)
+            self.log_download(response)
+        except requests.exceptions.ChunkedEncodingError as error:
+            if retry_ttl:
+                LOGGER.warning(f"Download failed: {error}... Retrying")
+                time.sleep(3 - retry_ttl)
+                return self.download(url, params, retry_ttl - 1)
+
+            LOGGER.error(f"Download failed: {error}... Maxed out retries")
+            sys.exit(1)
+
         try:
             return response.json()
         except ValueError as error:
