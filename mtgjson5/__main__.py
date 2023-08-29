@@ -14,8 +14,12 @@ import os.path
 import shutil
 from typing import List, Set, Union
 
+import urllib3.exceptions
+
 from mtgjson5 import constants
-from mtgjson5.utils import init_logger
+from mtgjson5.utils import init_logger, load_local_set_data
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def build_mtgjson_sets(
@@ -95,19 +99,23 @@ def dispatcher(args: argparse.Namespace) -> None:
 
     # If a price build, simply build prices and exit
     if args.price_build:
-        generate_compiled_prices_output(build_prices(), args.pretty)
+        generate_compiled_prices_output(*build_prices(), args.pretty)
         if args.compress:
             compress_mtgjson_contents(MtgjsonConfig().output_path)
         generate_output_file_hashes(MtgjsonConfig().output_path)
         return
 
     sets_to_build = ScryfallProvider().get_sets_to_build(args)
+    if args.all_sets:
+        additional_set_keys = set(load_local_set_data().keys())
+        additional_set_keys -= set(args.skip_sets)
+        sets_to_build = list(set(sets_to_build).union(additional_set_keys))
     if sets_to_build:
         build_mtgjson_sets(sets_to_build, args.pretty, args.referrals)
 
     if args.full_build:
         generate_compiled_output_files(args.pretty)
-        GitHubMTGSqliteProvider().build_sql_and_csv_files()
+        GitHubMTGSqliteProvider().build_alternative_formats()
 
     if args.compress:
         compress_mtgjson_contents(MtgjsonConfig().output_path)

@@ -172,7 +172,7 @@ def sort_internal_lists(data: Any) -> Any:
         for key, value in data.items():
             data[key] = sort_internal_lists(value)
     elif isinstance(data, (set, list)):
-        return sorted(list(data))
+        return sorted([x for x in list(data) if x is not None])
 
     return data
 
@@ -319,3 +319,14 @@ def generate_card_mapping(
             pass
 
     return dump_map
+
+
+def load_local_set_data() -> Dict[str, Dict[str, Any]]:
+    """
+    Loads the local set data
+    """
+    with constants.RESOURCE_PATH.joinpath("additional_sets.json").open(
+        encoding="utf-8"
+    ) as f:
+        data: Dict[str, Dict[str, Any]] = json.load(f)
+    return data

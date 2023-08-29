@@ -66,11 +66,11 @@ class GitHubMTGSqliteProvider(AbstractProvider):
         except subprocess.CalledProcessError as error:
             LOGGER.error(f"Unable to pip install: {error}")
 
-    def build_sql_and_csv_files(self) -> None:
+    def build_alternative_formats(self) -> None:
         """
         Call to external MTGSqlive to compile CSV and SQL output files
         """
-        LOGGER.info("Building MTGSQLive (CSV & SQL)...")
+        LOGGER.info("Building MTGSQLive...")
         try:
             subprocess.check_call(
                 [
@@ -78,7 +78,7 @@ class GitHubMTGSqliteProvider(AbstractProvider):
                     "-m",
                     "mtgsqlive",
                     "-i",
-                    self.all_printings_file,
+                    MtgjsonConfig().output_path,
                     "-o",
                     MtgjsonConfig().output_path,
                     "--all",

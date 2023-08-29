@@ -23,6 +23,7 @@ class MtgjsonCardObject:
     """
 
     artist: str
+    artist_ids: Optional[List[str]]
     ascii_name: Optional[str]
     attraction_lights: Optional[List[str]]
     availability: MtgjsonGameFormatsObject
@@ -94,10 +95,11 @@ class MtgjsonCardObject:
     rebalanced_printings: List[str]
     related_cards: MtgjsonRelatedCardsObject
     reverse_related: Optional[List[str]]
-    rulings: List[MtgjsonRulingObject]
+    rulings: Optional[List[MtgjsonRulingObject]]
     security_stamp: Optional[str]
     side: Optional[str]
     signature: Optional[str]
+    source_products: Optional[Dict[str, List[str]]]
     subsets: Optional[List[str]]
     subtypes: List[str]
     supertypes: List[str]
@@ -125,7 +127,6 @@ class MtgjsonCardObject:
         "has_non_foil",
         "color_identity",
         "colors",
-        "rulings",
         "converted_mana_cost",
         "mana_value",
         "face_converted_mana_cost",
@@ -198,6 +199,7 @@ class MtgjsonCardObject:
         self.is_token = is_token
         self.colors = []
         self.artist = ""
+        self.artist_ids = None
         self.layout = ""
         self.watermark = None
         self.__watermark_resource = {}

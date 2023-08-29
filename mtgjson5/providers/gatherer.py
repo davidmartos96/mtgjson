@@ -72,6 +72,7 @@ class GathererProvider(AbstractProvider):
             urllib3.exceptions.MaxRetryError,
             requests.exceptions.RetryError,
             requests.exceptions.SSLError,
+            requests.exceptions.ConnectionError,
         ) as exception:
             LOGGER.warning(f"Unable to get {url} with {params}: {exception}")
             return None
@@ -100,6 +101,9 @@ class GathererProvider(AbstractProvider):
             response = self.download(
                 self.SET_CHECKLIST_URL.format(page_number, set_name)
             )
+
+            if not response:
+                continue
 
             soup = bs4.BeautifulSoup(response.text, "html.parser")
 

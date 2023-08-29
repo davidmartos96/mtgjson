@@ -30,6 +30,8 @@ from .providers import (
     FandomProviderSecretLair,
     GathererProvider,
     GitHubBoostersProvider,
+    GitHubCardSealedProductsProvider,
+    GitHubDecksProvider,
     GitHubSealedProvider,
     MTGBanProvider,
     MultiverseBridgeProvider,
@@ -39,7 +41,7 @@ from .providers import (
     TCGPlayerProvider,
     WhatsInStandardProvider,
 )
-from .utils import get_str_or_none, parallel_call, url_keygen
+from .utils import get_str_or_none, load_local_set_data, parallel_call, url_keygen
 
 LOGGER = logging.getLogger(__name__)
 
@@ -403,7 +405,10 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     # Ensure we have a header for this set
     set_data = get_scryfall_set_data(set_code)
     if not set_data:
-        return None
+        additional_sets_data = load_local_set_data()
+        set_data = additional_sets_data.get(set_code.upper())
+        if not set_data:
+            return None
 
     # Explicit Variables
     mtgjson_set.name = set_data["name"].strip()
@@ -439,8 +444,6 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     add_is_starter_option(set_code, mtgjson_set.search_uri, mtgjson_set.cards)
     add_rebalanced_to_original_linkage(mtgjson_set)
     relocate_miscellaneous_tokens(mtgjson_set)
-    add_mcm_details(mtgjson_set)
-    add_card_kingdom_details(mtgjson_set)
 
     if not any(card.identifiers.multiverse_id for card in mtgjson_set.cards):
         add_slow_gatherer_multiverse_ids_if_necessary(mtgjson_set)
@@ -469,6 +472,8 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
         mtgjson_set.token_set_code = mtgjson_set.tokens[0].set_code
 
     add_other_face_ids(mtgjson_set.tokens)
+    add_mcm_details(mtgjson_set)
+    add_card_kingdom_details(mtgjson_set)
 
     mtgjson_set.tcgplayer_group_id = set_data.get("tcgplayer_id")
     mtgjson_set.booster = GitHubBoostersProvider().get_set_booster_data(set_code)
@@ -494,6 +499,12 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     add_multiverse_bridge_ids(mtgjson_set)
 
     mark_duel_decks(set_code, mtgjson_set.cards)
+
+    mtgjson_set.decks = GitHubDecksProvider().get_decks_in_set(set_code)
+    for mtgjson_set_deck in mtgjson_set.decks:
+        mtgjson_set_deck.add_sealed_product_uuids(mtgjson_set.sealed_product)
+
+    add_card_products_to_cards(mtgjson_set)
 
     if "Art Series" in mtgjson_set.name:
         add_orientations(mtgjson_set)
@@ -817,6 +828,9 @@ def build_mtgjson_card(
             mtgjson_card.layout = "aftermath"
 
         mtgjson_card.artist = scryfall_object["card_faces"][face_id].get("artist", "")
+        mtgjson_card.artist_ids = scryfall_object["card_faces"][face_id].get(
+            "artist_ids", ""
+        )
 
         if face_id == 0:
             for i in range(1, len(scryfall_object["card_faces"])):
@@ -905,7 +919,7 @@ def build_mtgjson_card(
     mtgjson_card.promo_types = [
         card_type
         for card_type in mtgjson_card.promo_types
-        if card_type not in {"starterdeck", "planeswalkerdeck"}
+        if card_type not in {"planeswalkerdeck"}
     ]
 
     card_release_date = scryfall_object.get("released_at")
@@ -915,6 +929,8 @@ def build_mtgjson_card(
     mtgjson_card.rarity = scryfall_object.get("rarity", "")
     if not mtgjson_card.artist:
         mtgjson_card.artist = scryfall_object.get("artist", "")
+    if not mtgjson_card.artist_ids:
+        mtgjson_card.artist_ids = scryfall_object.get("artist_ids", "")
     if not mtgjson_card.watermark:
         mtgjson_card.set_watermark(face_data.get("watermark"))
 
@@ -1275,7 +1291,8 @@ def add_card_kingdom_details(mtgjson_set: MtgjsonSetObject) -> None:
     """
     LOGGER.info(f"Adding CK details for {mtgjson_set.code}")
     translation_table = MTGBanProvider().get_mtgjson_to_card_kingdom()
-    for mtgjson_card in mtgjson_set.cards:
+
+    for mtgjson_card in mtgjson_set.cards + mtgjson_set.tokens:
         if mtgjson_card.uuid not in translation_table:
             continue
 
@@ -1390,7 +1407,7 @@ def add_mcm_details(mtgjson_set: MtgjsonSetObject) -> None:
     if mtgjson_set.mcm_id_extras:
         extras_cards = CardMarketProvider().get_mkm_cards(mtgjson_set.mcm_id_extras)
 
-    for mtgjson_card in mtgjson_set.cards:
+    for mtgjson_card in mtgjson_set.cards + mtgjson_set.tokens:
         delete_key = False
 
         # "boosterfun" is an alias for frame_effects=showcase, frame_effects=extendedart, and border_color=borderless
@@ -1410,6 +1427,12 @@ def add_mcm_details(mtgjson_set: MtgjsonSetObject) -> None:
         elif mtgjson_card.name.replace("//", "/").lower() in search_cards:
             # Finally, lets check if they used a single slash for split-type cards
             card_key = mtgjson_card.name.replace("//", "/").lower()
+        elif (
+            mtgjson_card.is_token
+            and f"{mtgjson_card.name.lower()} token" in search_cards
+        ):
+            # Tokens usually end in the word token
+            card_key = f"{mtgjson_card.name.lower()} token"
         else:
             # Multiple printings of a card in the set... just guess at this point
             card_key = ""
@@ -1622,3 +1645,16 @@ def add_related_cards(
 
     if related_cards.present():
         mtgjson_card.related_cards = related_cards
+
+
+def add_card_products_to_cards(mtgjson_set: MtgjsonSetObject) -> None:
+    """
+    Add what product(s) each card can be found in, using sealedProduct UUIDs
+    :param mtgjson_set MTGJSON Set object to modify in place
+    """
+    for card_entity in mtgjson_set.cards + mtgjson_set.tokens:
+        card_entity.source_products = (
+            GitHubCardSealedProductsProvider().get_products_card_found_in(
+                card_entity.uuid
+            )
+        )
