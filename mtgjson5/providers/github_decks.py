@@ -86,7 +86,7 @@ class GitHubDecksProvider(AbstractProvider):
         :param url: Download URL
         :param params: Options for URL download
         """
-        if not SHOULD_DOWNLOAD:
+        if url == self.decks_api_url and not SHOULD_DOWNLOAD:
             print("USING LOCAL decks.json")
             deck_j_path = "/home/david/Dev/magic-preconstructed-decks-data/decks_v2.json"
             with open(deck_j_path, "r") as f:
