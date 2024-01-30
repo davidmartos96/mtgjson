@@ -3,10 +3,10 @@ MTGJSON Singular Card.Identifiers Object
 """
 from typing import Dict, Optional
 
-from mtgjson5.utils import to_camel_case
+from .json_object import JsonObject
 
 
-class MtgjsonIdentifiersObject:
+class MtgjsonIdentifiersObject(JsonObject):
     """
     MTGJSON Singular Card.Identifiers Object
     """
@@ -14,6 +14,7 @@ class MtgjsonIdentifiersObject:
     card_kingdom_etched_id: Optional[str]
     card_kingdom_foil_id: Optional[str]
     card_kingdom_id: Optional[str]
+    cardsphere_foil_id: Optional[str]
     cardsphere_id: Optional[str]
     mcm_id: Optional[str]
     mcm_meta_id: Optional[str]
@@ -26,6 +27,7 @@ class MtgjsonIdentifiersObject:
     multiverse_id: Optional[str]
     scryfall_id: Optional[str]
     scryfall_illustration_id: Optional[str]
+    scryfall_card_back_id: Optional[str]
     scryfall_oracle_id: Optional[str]
     tcgplayer_etched_product_id: Optional[str]
     tcgplayer_product_id: Optional[str]
@@ -35,14 +37,9 @@ class MtgjsonIdentifiersObject:
         Empty initializer
         """
         self.multiverse_id = ""
+        self.card_kingdom_id = ""
+        self.tcgplayer_product_id = ""
 
     def to_json(self) -> Dict[str, str]:
-        """
-        Support json.dump()
-        :return: JSON serialized object
-        """
-        return {
-            to_camel_case(key): value
-            for key, value in self.__dict__.items()
-            if "__" not in key and not callable(value) and value
-        }
+        parent = super().to_json()
+        return {key: value for key, value in parent.items() if value}

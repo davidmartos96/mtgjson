@@ -10,10 +10,9 @@ from ..classes import (
     MtgjsonSealedProductCategory,
     MtgjsonSealedProductObject,
     MtgjsonSealedProductSubtype,
-    MtgjsonSetObject,
 )
 from ..providers.abstract import AbstractProvider
-from ..utils import retryable_session
+from ..utils import to_snake_case
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,9 +51,7 @@ class GitHubSealedProvider(AbstractProvider):
         :param url: Download URL
         :param params: Options for URL download
         """
-        session = retryable_session()
-
-        response = session.get(url)
+        response = self.session.get(url)
         self.log_download(response)
         if response.ok:
             return response.json()
@@ -72,7 +69,7 @@ class GitHubSealedProvider(AbstractProvider):
         :param set_code: Set to pull data from
         :return sealed product list, if applicable
         """
-        LOGGER.info(f"Getting booster data for {set_code}")
+        LOGGER.info(f"Getting sealed product data for {set_code}")
         products_list = []
         for sealed_product_name, sealed_product in self.sealed_products.get(
             set_code.lower(), {}
@@ -80,6 +77,7 @@ class GitHubSealedProvider(AbstractProvider):
             product_obj = MtgjsonSealedProductObject()
             product_obj.name = sealed_product_name
             product_obj.release_date = sealed_product.get("release_date")
+            product_obj.language = sealed_product.get("language")
 
             try:
                 product_obj.category = getattr(
@@ -100,23 +98,26 @@ class GitHubSealedProvider(AbstractProvider):
             products_list.append(product_obj)
 
             for location, identifier in sealed_product.get("identifiers", {}).items():
-                setattr(product_obj.identifiers, location, identifier)
+                setattr(
+                    product_obj.identifiers, to_snake_case(location), str(identifier)
+                )
+
         return products_list
 
     def apply_sealed_contents_data(
-        self, set_code: str, mtgjson_set: MtgjsonSetObject
+        self, set_code: str, sealed_products: List[MtgjsonSealedProductObject]
     ) -> None:
         """
         Adds the sealed contents to each element of sealed_products.
         :param set_code: Code of set to update
-        :param mtgjson_set: Set object to update
+        :param sealed_products: Sealed products within the set
         """
         LOGGER.info(f"Adding sealed product contents to {set_code}")
         set_contents = self.sealed_contents.get(set_code.lower())
         if not set_contents:
             return
 
-        for product in mtgjson_set.sealed_product:
+        for product in sealed_products:
             product_contents = set_contents.get(product.name)
             if product_contents:
                 if "size" in product_contents:

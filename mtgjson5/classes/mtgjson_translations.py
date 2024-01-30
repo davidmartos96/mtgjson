@@ -3,8 +3,10 @@ MTGJSON Set.Translations Object
 """
 from typing import Any, Dict, Optional
 
+from mtgjson5.classes.json_object import JsonObject
 
-class MtgjsonTranslationsObject:
+
+class MtgjsonTranslationsObject(JsonObject):
     """
     MTGJSON Set.Translations Object
     """
@@ -29,14 +31,14 @@ class MtgjsonTranslationsObject:
 
         self.chinese_simplified = active_dict.get("Chinese Simplified")
         self.chinese_traditional = active_dict.get("Chinese Traditional")
-        self.french = active_dict.get("French")
-        self.german = active_dict.get("German")
-        self.italian = active_dict.get("Italian")
+        self.french = active_dict.get("French", active_dict.get("fr"))
+        self.german = active_dict.get("German", active_dict.get("de"))
+        self.italian = active_dict.get("Italian", active_dict.get("it"))
         self.japanese = active_dict.get("Japanese")
         self.korean = active_dict.get("Korean")
         self.portuguese_ob_brazil_cb = active_dict.get("Portuguese (Brazil)")
         self.russian = active_dict.get("Russian")
-        self.spanish = active_dict.get("Spanish")
+        self.spanish = active_dict.get("Spanish", active_dict.get("es"))
 
     @staticmethod
     def parse_key(key: str) -> str:
@@ -50,10 +52,6 @@ class MtgjsonTranslationsObject:
         return " ".join(x.title() for x in components)
 
     def to_json(self) -> Dict[str, Any]:
-        """
-        Support json.dump()
-        :return: JSON serialized object
-        """
         return {
             self.parse_key(key): value
             for key, value in self.__dict__.items()

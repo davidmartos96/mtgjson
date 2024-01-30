@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Union
 from singleton_decorator import singleton
 
 from ..providers.abstract import AbstractProvider
-from ..utils import retryable_session
+from ..utils import recursive_sort
 
 LOGGER = logging.getLogger(__name__)
 
@@ -43,9 +43,7 @@ class GitHubBoostersProvider(AbstractProvider):
         :param url: Download URL
         :param params: Options for URL download
         """
-        session = retryable_session()
-
-        response = session.get(url)
+        response = self.session.get(url)
         self.log_download(response)
         if response.ok:
             return response.json()
@@ -58,8 +56,9 @@ class GitHubBoostersProvider(AbstractProvider):
     def get_set_booster_data(self, set_code: str) -> Optional[Dict[str, Any]]:
         """
         Grab an individual set's booster variable, if it exists
-        :param set_code: Set to pull data from (case insensitive)
+        :param set_code: Set to pull data from (case-insensitive)
         :return Booster data, if applicable
         """
         LOGGER.info(f"Getting booster data for {set_code}")
-        return self.booster_data.get(set_code.upper())
+        data = self.booster_data.get(set_code.upper())
+        return recursive_sort(data) if data else None

@@ -21,11 +21,12 @@ from .classes import (
     MtgjsonRulingObject,
     MtgjsonSealedProductObject,
     MtgjsonSetObject,
+    MtgjsonTranslationsObject,
 )
+from .parallel_call import parallel_call
 from .providers import (
     CardKingdomProvider,
     CardMarketProvider,
-    CardMarketProviderSetNameTranslations,
     EdhrecProviderCardRanks,
     FandomProviderSecretLair,
     GathererProvider,
@@ -41,7 +42,7 @@ from .providers import (
     TCGPlayerProvider,
     WhatsInStandardProvider,
 )
-from .utils import get_str_or_none, load_local_set_data, parallel_call, url_keygen
+from .utils import get_str_or_none, load_local_set_data, url_keygen
 
 LOGGER = logging.getLogger(__name__)
 
@@ -101,7 +102,9 @@ def parse_foreign(
             foreign_card = foreign_card["card_faces"][face]
             card_foreign_entry.face_name = foreign_card.get("printed_name")
             if not card_foreign_entry.face_name:
-                LOGGER.warning(f"Unable to resolve name for {foreign_card}")
+                LOGGER.info(
+                    f"Unable to resolve face_name for {foreign_card}, using name"
+                )
                 card_foreign_entry.face_name = foreign_card.get("name")
 
         if not card_foreign_entry.name:
@@ -142,11 +145,22 @@ def parse_card_types(card_type: str) -> Tuple[List[str], List[str], List[str]]:
         subtypes: str = split_type[1]
 
         # Planes are an entire sub-type, whereas normal cards
-        # are split by spaces
+        # are split by spaces... until they aren't #WHO
         if card_type.startswith("Plane"):
             sub_types = [subtypes.strip()]
         else:
+            special_case_found = False
+            for special_case in constants.MULTI_WORD_SUB_TYPES:
+                if special_case in subtypes:
+                    subtypes = subtypes.replace(
+                        special_case, special_case.replace(" ", "!")
+                    )
+                    special_case_found = True
+
             sub_types = [x.strip() for x in subtypes.split() if x]
+            if special_case_found:
+                for i, sub_type in enumerate(sub_types):
+                    sub_types[i] = sub_type.replace("!", " ")
 
     for value in supertypes_and_types.split():
         if value in constants.SUPER_TYPES:
@@ -184,7 +198,7 @@ def get_scryfall_set_data(set_code: str) -> Optional[Dict[str, Any]]:
     )
 
     if set_data["object"] == "error":
-        LOGGER.error(f"Failed to download {set_code}")
+        LOGGER.warning(f"Failed to download {set_code}")
         return None
 
     return set_data
@@ -292,7 +306,7 @@ def parse_rulings(rulings_url: str) -> List[MtgjsonRulingObject]:
         mtgjson_rule = MtgjsonRulingObject(sf_rule["published_at"], sf_rule["comment"])
         mtgjson_rules.append(mtgjson_rule)
 
-    return sorted(mtgjson_rules, key=lambda ruling: ruling.date)
+    return sorted(mtgjson_rules, key=lambda ruling: (ruling.date, ruling.text))
 
 
 def add_rebalanced_to_original_linkage(mtgjson_set: MtgjsonSetObject) -> None:
@@ -324,7 +338,7 @@ def add_rebalanced_to_original_linkage(mtgjson_set: MtgjsonSetObject) -> None:
 def relocate_miscellaneous_tokens(mtgjson_set: MtgjsonSetObject) -> None:
     """
     Sometimes tokens find their way into the main set. This will
-    remove them from the cards array and sets an internal market
+    remove them from the cards array and sets an internal marker
     to be dealt with later down the line
     :param mtgjson_set: MTGJSON Set object
     """
@@ -393,6 +407,20 @@ def parse_keyrune_code(url: str) -> str:
     return upstream_to_keyrune_map.get(file_stem, file_stem)
 
 
+def get_translation_data(mtgjson_set_name: str) -> Optional[Dict[str, str]]:
+    """
+    Get translation data given a particular set name
+    :param mtgjson_set_name: Set name to try and find in translation data
+    :returns Translation data for the set, if found
+    """
+    with constants.RESOURCE_PATH.joinpath("mkm_set_name_translations.json").open(
+        encoding="utf-8"
+    ) as file:
+        translation_data: Dict[str, Dict[str, str]] = json.load(file)
+
+    return translation_data.get(mtgjson_set_name)
+
+
 def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     """
     Construct a MTGJSON Magic Set
@@ -402,13 +430,13 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     # Output Object
     mtgjson_set = MtgjsonSetObject()
 
-    # Ensure we have a header for this set
-    set_data = get_scryfall_set_data(set_code)
+    # Attempt to load local set before getting from external provider
+    additional_sets_data = load_local_set_data()
+    set_data = additional_sets_data.get(
+        set_code.upper(), get_scryfall_set_data(set_code)
+    )
     if not set_data:
-        additional_sets_data = load_local_set_data()
-        set_data = additional_sets_data.get(set_code.upper())
-        if not set_data:
-            return None
+        return None
 
     # Explicit Variables
     mtgjson_set.name = set_data["name"].strip()
@@ -423,18 +451,17 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     mtgjson_set.is_foil_only = set_data.get("foil_only", "")
     mtgjson_set.is_non_foil_only = set_data.get("nonfoil_only", "")
     mtgjson_set.search_uri = set_data["search_uri"]
-    mtgjson_set.languages = (
-        ScryfallProviderSetLanguageDetector().get_set_printing_languages(
-            mtgjson_set.code
+    if set_code.upper() not in additional_sets_data:
+        mtgjson_set.languages = (
+            ScryfallProviderSetLanguageDetector().get_set_printing_languages(
+                mtgjson_set.code
+            )
         )
-    )
     mtgjson_set.mcm_name = CardMarketProvider().get_set_name(mtgjson_set.name)
     mtgjson_set.mcm_id = CardMarketProvider().get_set_id(mtgjson_set.name)
     mtgjson_set.mcm_id_extras = CardMarketProvider().get_extras_set_id(mtgjson_set.name)
-    mtgjson_set.translations = (
-        CardMarketProviderSetNameTranslations().get_set_translation_object(
-            mtgjson_set.code
-        )
+    mtgjson_set.translations = MtgjsonTranslationsObject(
+        get_translation_data(mtgjson_set.name)
     )
 
     # Building cards is a process
@@ -444,9 +471,6 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     add_is_starter_option(set_code, mtgjson_set.search_uri, mtgjson_set.cards)
     add_rebalanced_to_original_linkage(mtgjson_set)
     relocate_miscellaneous_tokens(mtgjson_set)
-
-    if not any(card.identifiers.multiverse_id for card in mtgjson_set.cards):
-        add_slow_gatherer_multiverse_ids_if_necessary(mtgjson_set)
 
     if mtgjson_set.code in {"CN2", "FRF", "ONS", "10E", "UNH"}:
         link_same_card_different_details(mtgjson_set)
@@ -478,22 +502,17 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     mtgjson_set.tcgplayer_group_id = set_data.get("tcgplayer_id")
     mtgjson_set.booster = GitHubBoostersProvider().get_set_booster_data(set_code)
 
-    # Build sealed product using the TCGPlayer data
-    mtgjson_set.sealed_product = (
-        TCGPlayerProvider().generate_mtgjson_sealed_product_objects(
-            mtgjson_set.tcgplayer_group_id, mtgjson_set.code
-        )
+    mtgjson_set.sealed_product = GitHubSealedProvider().get_sealed_products_data(
+        set_code
     )
-    CardKingdomProvider().update_sealed_product(
-        mtgjson_set.name, mtgjson_set.sealed_product
+    CardKingdomProvider().update_sealed_urls(mtgjson_set.sealed_product)
+    GitHubSealedProvider().apply_sealed_contents_data(
+        set_code, mtgjson_set.sealed_product
     )
-    sealed_provider = GitHubSealedProvider()
-    mtgjson_set.sealed_product.extend(
-        sealed_provider.get_sealed_products_data(set_code)
-    )
-    sealed_provider.apply_sealed_contents_data(set_code, mtgjson_set)
-    add_sealed_uuid(mtgjson_set)
-    add_sealed_purchase_url(mtgjson_set)
+    add_sealed_uuid(mtgjson_set.sealed_product)
+    TCGPlayerProvider().update_sealed_urls(mtgjson_set.sealed_product)
+    add_sealed_purchase_url(mtgjson_set.sealed_product)
+
     add_token_signatures(mtgjson_set)
 
     add_multiverse_bridge_ids(mtgjson_set)
@@ -501,8 +520,6 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     mark_duel_decks(set_code, mtgjson_set.cards)
 
     mtgjson_set.decks = GitHubDecksProvider().get_decks_in_set(set_code)
-    for mtgjson_set_deck in mtgjson_set.decks:
-        mtgjson_set_deck.add_sealed_product_uuids(mtgjson_set.sealed_product)
 
     add_card_products_to_cards(mtgjson_set)
 
@@ -514,27 +531,6 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     mtgjson_set.is_partial_preview = MtgjsonMetaObject().date < mtgjson_set.release_date
 
     return mtgjson_set
-
-
-def add_slow_gatherer_multiverse_ids_if_necessary(
-    mtgjson_set: MtgjsonSetObject,
-) -> None:
-    """
-    If our upstream providers are lacking Multiverse IDs, we can manually pull them
-    from Gatherer ourselves, albeit a relatively slow operation.
-    :param mtgjson_set: the set to add multiverse ids to
-    """
-    LOGGER.info(f"Attempting to add Multiverse IDs to {mtgjson_set.code}")
-    card_number_to_multiverse_ids = (
-        GathererProvider().get_collector_number_to_multiverse_id_mapping(
-            mtgjson_set.name
-        )
-    )
-    for card in mtgjson_set.cards:
-        LOGGER.info(
-            f"Adding backup Multiverse ID {card_number_to_multiverse_ids.get(card.number)} to {card.name}"
-        )
-        card.identifiers.multiverse_id = card_number_to_multiverse_ids.get(card.number)
 
 
 def build_base_mtgjson_tokens(
@@ -549,25 +545,28 @@ def build_base_mtgjson_tokens(
     return build_base_mtgjson_cards(set_code, added_tokens, True)
 
 
-def add_sealed_uuid(mtgjson_set: MtgjsonSetObject) -> None:
+def add_sealed_uuid(sealed_products: List[MtgjsonSealedProductObject]) -> None:
     """
     Adds all uuids to each sealed product object within a set
-    :param mtgjson_set: the set to add sealed uuids to
+    :param sealed_products: Sealed products within the set
     """
-    for sealed_product in mtgjson_set.sealed_product:
+    for sealed_product in sealed_products:
         add_uuid(sealed_product)
 
 
-def add_sealed_purchase_url(mtgjson_set: MtgjsonSetObject) -> None:
+def add_sealed_purchase_url(sealed_products: List[MtgjsonSealedProductObject]) -> None:
     """
     Adds all purchase urls to each sealed product object within a set
-    :param mtgjson_set: the set to add purchase urls to
+    :param sealed_products: Sealed products within the set
     """
-    for sealed_product in mtgjson_set.sealed_product:
-        if (
-            hasattr(sealed_product.identifiers, "tcgplayer_product_id")
-            and sealed_product.identifiers.tcgplayer_product_id
-        ):
+    for sealed_product in sealed_products:
+        if sealed_product.identifiers.tcgplayer_product_id:
+            sealed_product.raw_purchase_urls[
+                "tcgplayer"
+            ] = TCGPlayerProvider().product_url.format(
+                sealed_product.identifiers.tcgplayer_product_id
+            )
+
             sealed_product.purchase_urls.tcgplayer = url_keygen(
                 sealed_product.identifiers.tcgplayer_product_id + sealed_product.uuid
             )
@@ -816,8 +815,10 @@ def build_mtgjson_card(
             # Modal DFCs have their face & normal mana cost the same
         elif scryfall_object["layout"] == "modal_dfc":
             mtgjson_card.mana_value = get_card_cmc(face_data.get("mana_cost", "0"))
+            mtgjson_card.face_mana_value = mtgjson_card.mana_value
             # Deprecated - Remove in 6.0.0
             mtgjson_card.converted_mana_cost = mtgjson_card.mana_value
+            mtgjson_card.face_converted_mana_cost = mtgjson_card.face_mana_value
         elif scryfall_object["layout"] == "reversible_card":
             mtgjson_card.mana_value = face_data.get("cmc", 0)
             mtgjson_card.converted_mana_cost = mtgjson_card.mana_value
@@ -845,6 +846,7 @@ def build_mtgjson_card(
     mtgjson_card.identifiers.scryfall_illustration_id = scryfall_object.get(
         "illustration_id", face_data.get("illustration_id")
     )
+    mtgjson_card.identifiers.scryfall_card_back_id = scryfall_object.get("card_back_id")
 
     if not mtgjson_card.colors:
         mtgjson_card.colors = (
@@ -864,7 +866,9 @@ def build_mtgjson_card(
         mtgjson_card.converted_mana_cost = scryfall_object.get("cmc", "")
     mtgjson_card.edhrec_rank = scryfall_object.get("edhrec_rank")
     mtgjson_card.edhrec_saltiness = EdhrecProviderCardRanks().get_salt_rating(
-        mtgjson_card.name
+        mtgjson_card.name.split("/")[0].strip()
+        if "/" in mtgjson_card.name
+        else mtgjson_card.name
     )
     mtgjson_card.finishes = scryfall_object.get("finishes", [])
     mtgjson_card.frame_effects = scryfall_object.get("frame_effects", "")
@@ -1079,7 +1083,7 @@ def build_mtgjson_card(
         meld_object = []
         mtgjson_card.set_names(None)
         for a_part in sorted(
-            scryfall_object["all_parts"], key=lambda part: part["component"]  # type: ignore
+            scryfall_object["all_parts"], key=lambda part: part["component"]
         ):
             if a_part["component"] == "token":
                 continue
@@ -1108,6 +1112,8 @@ def build_mtgjson_card(
         if mtgjson_card.get_names() and len(mtgjson_card.get_names()) == 3:
             # Front Sides will have name = Front1//Back, Front2//Back
             # Back Side will have name = Back
+            mtgjson_card.face_converted_mana_cost = mtgjson_card.mana_value
+            mtgjson_card.face_mana_value = mtgjson_card.mana_value
             if mtgjson_card.name != mtgjson_card.get_names()[2]:
                 mtgjson_card.side = "a"
                 mtgjson_card.face_name = mtgjson_card.name
@@ -1133,12 +1139,18 @@ def build_mtgjson_card(
 
     # Add purchase URL components after UUIDs are finalized
     mtgjson_card.raw_purchase_urls.update(scryfall_object.get("purchase_uris", {}))
+    mtgjson_card.raw_purchase_urls.pop("tcgplayer", None)
     if "tcgplayer_id" in scryfall_object:
         mtgjson_card.identifiers.tcgplayer_product_id = str(
             scryfall_object["tcgplayer_id"]
         )
         mtgjson_card.purchase_urls.tcgplayer = url_keygen(
             mtgjson_card.identifiers.tcgplayer_product_id + mtgjson_card.uuid
+        )
+        mtgjson_card.raw_purchase_urls[
+            "tcgplayer"
+        ] = TCGPlayerProvider().product_url.format(
+            mtgjson_card.identifiers.tcgplayer_product_id
         )
     if "tcgplayer_etched_id" in scryfall_object:
         mtgjson_card.identifiers.tcgplayer_etched_product_id = str(
@@ -1147,23 +1159,22 @@ def build_mtgjson_card(
         mtgjson_card.purchase_urls.tcgplayer_etched = url_keygen(
             mtgjson_card.identifiers.tcgplayer_etched_product_id + mtgjson_card.uuid
         )
-        # Have to manually insert
-        mtgjson_card.raw_purchase_urls["tcgplayerEtched"] = (
-            "https://shop.tcgplayer.com/product/productsearch"
-            + f"?id={mtgjson_card.identifiers.tcgplayer_etched_product_id}"
-            + "&utm_campaign=affiliate&utm_medium=api&utm_source=mtgjson"
+        mtgjson_card.raw_purchase_urls[
+            "tcgplayerEtched"
+        ] = TCGPlayerProvider().product_url.format(
+            mtgjson_card.identifiers.tcgplayer_etched_product_id
         )
 
     add_related_cards(scryfall_object, mtgjson_card, is_token)
 
-    # Gatherer Calls -- SLOWWWWW
+    # Gatherer Calls -- Pulled from prebuilt cache
     if mtgjson_card.identifiers.multiverse_id:
         gatherer_cards = GathererProvider().get_cards(
-            mtgjson_card.identifiers.multiverse_id, mtgjson_card.set_code.lower()
+            mtgjson_card.identifiers.multiverse_id
         )
-        if len(gatherer_cards) > face_id:
-            mtgjson_card.original_type = gatherer_cards[face_id].original_types
-            mtgjson_card.original_text = gatherer_cards[face_id].original_text
+        if isinstance(gatherer_cards, list) and len(gatherer_cards) > face_id:
+            mtgjson_card.original_type = gatherer_cards[face_id].get("original_types")
+            mtgjson_card.original_text = gatherer_cards[face_id].get("original_text")
 
     mtgjson_cards.append(mtgjson_card)
 
@@ -1384,9 +1395,16 @@ def add_multiverse_bridge_ids(mtgjson_set: MtgjsonSetObject) -> None:
                 f"MultiverseBridge missing {mtgjson_card.name} in {mtgjson_card.set_code}"
             )
             continue
-        mtgjson_card.identifiers.cardsphere_id = str(
-            rosetta_stone_cards[mtgjson_card.identifiers.scryfall_id]["cs_id"]
-        )
+
+        for rosetta_card_print in rosetta_stone_cards.get(
+            mtgjson_card.identifiers.scryfall_id, []
+        ):
+            attr = (
+                "cardsphere_foil_id"
+                if rosetta_card_print.get("is_foil")
+                else "cardsphere_id"
+            )
+            setattr(mtgjson_card.identifiers, attr, str(rosetta_card_print["cs_id"]))
 
     mtgjson_set.cardsphere_set_id = (
         MultiverseBridgeProvider()
@@ -1403,7 +1421,7 @@ def add_mcm_details(mtgjson_set: MtgjsonSetObject) -> None:
     LOGGER.info(f"Adding MCM details for {mtgjson_set.code}")
     mkm_cards = CardMarketProvider().get_mkm_cards(mtgjson_set.mcm_id)
 
-    extras_cards: Dict[str, Dict[str, Any]] = {}
+    extras_cards: Dict[str, List[Dict[str, Any]]] = {}
     if mtgjson_set.mcm_id_extras:
         extras_cards = CardMarketProvider().get_mkm_cards(mtgjson_set.mcm_id_extras)
 
@@ -1446,9 +1464,17 @@ def add_mcm_details(mtgjson_set: MtgjsonSetObject) -> None:
                 LOGGER.debug(f"Failed to find {mtgjson_card.name} for MKM")
                 continue
 
-        mkm_obj = search_cards[card_key]
         if delete_key:
             del search_cards[card_key]
+
+        if not search_cards[card_key]:
+            continue
+
+        for mkm_obj in search_cards[card_key]:
+            if mtgjson_card.number in mkm_obj["number"]:
+                break
+        else:
+            mkm_obj = search_cards[card_key][0]
 
         # This value is set by an upstream provider by default
         if not mtgjson_card.identifiers.mcm_id:
@@ -1633,14 +1659,14 @@ def add_related_cards(
             for a_part in scryfall_object["all_parts"]:
                 if a_part.get("name") != mtgjson_card.name:
                     reverse_related.append(a_part.get("name"))
-        mtgjson_card.reverse_related = reverse_related
-        related_cards.reverse_related = reverse_related
+        mtgjson_card.reverse_related = sorted(reverse_related)
+        related_cards.reverse_related = sorted(reverse_related)
 
     if "alchemy" in scryfall_object["set_type"]:
         alchemy_cards = ScryfallProvider().get_alchemy_cards_with_spellbooks()
         if mtgjson_card.name in alchemy_cards:
-            related_cards.spellbook = ScryfallProvider().get_card_names_in_spellbook(
-                mtgjson_card.name
+            related_cards.spellbook = sorted(
+                ScryfallProvider().get_card_names_in_spellbook(mtgjson_card.name)
             )
 
     if related_cards.present():
@@ -1652,7 +1678,13 @@ def add_card_products_to_cards(mtgjson_set: MtgjsonSetObject) -> None:
     Add what product(s) each card can be found in, using sealedProduct UUIDs
     :param mtgjson_set MTGJSON Set object to modify in place
     """
-    for card_entity in mtgjson_set.cards + mtgjson_set.tokens:
+    for card_entity in mtgjson_set.cards:
+        card_entity.source_products = (
+            GitHubCardSealedProductsProvider().get_products_card_found_in(
+                card_entity.uuid
+            )
+        )
+    for card_entity in mtgjson_set.tokens:
         card_entity.source_products = (
             GitHubCardSealedProductsProvider().get_products_card_found_in(
                 card_entity.uuid

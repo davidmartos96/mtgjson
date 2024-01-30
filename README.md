@@ -1,10 +1,10 @@
 # [MTGJSON v5](https://mtgjson.com/)
-<p align="center"><a href="https://mtgjson.com/"><img src="https://www.mtgjson.com/images/assets/logo-mtgjson.svg" height="100px" alt="MTGJSON Logo"/></a></p>
-<p align="center">
+<div style="text-align: center;"><a href="https://mtgjson.com/"><img src="https://www.mtgjson.com/images/assets/logo-mtgjson.svg" height="100px" alt="MTGJSON Logo"/></a></div>
+<div style="text-align: center;">
     <a href="https://mtgjson.com/changelog/mtgjson-v5/"><img src="https://img.shields.io/badge/dynamic/json.svg?label=Version&url=https%3A%2F%2Fmtgjson.com%2Fapi%2Fv5%2FMeta.json&query=%24.data.version&colorB=blue" alt="MTGJSON Version"/></a> 
     <a href="https://mtgjson.com/changelog/mtgjson-v5/"><img src="https://img.shields.io/badge/dynamic/json.svg?label=Release%20Date&url=https%3A%2F%2Fmtgjson.com%2Fapi%2Fv5%2FMeta.json&query=%24.data.date&colorB=blue" alt="MTGJSON Version Date"/></a>
     <br/><br/>
-</p>
+</div>
 
 
 MTGJSON is an open-source repository of [Magic: The Gathering](https://magic.wizards.com/) card data, specifically in [JSON](https://json.org/) and [CSV](https://en.wikipedia.org/wiki/Comma-separated_values) formats. This repository contains the build scripts we use to create our data sets.
@@ -70,11 +70,11 @@ While MTGJSON will work on Windows, Mac, and Linux, we prefer working within the
 
 #### Install Python3
 MTGJSON is built on and tested against a wide range of Python3 versions. Currently, we maintain support for the following versions:
-- Python 3.7
 - Python 3.8
 - Python 3.9
 - Python 3.10
 - Python 3.11
+- Python 3.12
 
 #### Install MTGJSON
 ##### Local Installation

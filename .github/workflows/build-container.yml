@@ -18,18 +18,21 @@ jobs:
     steps:
       - name: Checkout Repository
         id: checkout-repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Get Branch Name
         id: branch-name
-        uses: tj-actions/branch-names@v5.1
+        uses: tj-actions/branch-names@v8
+
+      - id: commit
+        uses: prompt/actions-commit-hash@v3
 
       - name: Generate Tag
         id: generate-tag
         run: |
-          echo "::set-output name=release_tag::mtgjson:$(date +"%Y-%m-%d_%H-%M")-${{ steps.branch-name.outputs.current_branch }}"
+          echo "release_tag=mtgjson:$(date +"%Y-%m-%d_%H-%M")-${{ steps.branch-name.outputs.current_branch }}" >> $GITHUB_OUTPUT
 
       - name: Build Image
         id: build-image
@@ -37,7 +40,7 @@ jobs:
 
       - name: Upload Image to GitHub Actions Archive
         id: upload-gha
-        uses: ishworkh/docker-image-artifact-upload@v1
+        uses: ishworkh/container-image-artifact-upload@v1.0.0
         with:
           image: ${{ steps.generate-tag.outputs.release_tag }}
 
@@ -50,4 +53,4 @@ jobs:
           secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_ECR_UPLOADER }}
           region: us-east-1
           local-image: ${{ steps.generate-tag.outputs.release_tag }}
-          image: ${{ steps.generate-tag.outputs.release_tag }}, mtgjson:latest
+          image: ${{ steps.generate-tag.outputs.release_tag }}, mtgjson:${{ steps.commit.outputs.short }}, mtgjson:latest

@@ -5,13 +5,15 @@ import abc
 import copy
 import datetime
 import logging
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Union
 
+import requests
 import requests_cache
 
-from mtgjson5 import constants
-from mtgjson5.classes import MtgjsonPricesObject
-from mtgjson5.mtgjson_config import MtgjsonConfig
+from ..classes import MtgjsonPricesObject
+from ..mtgjson_config import MtgjsonConfig
+from ..retryable_session import retryable_session
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,14 +24,14 @@ class AbstractProvider(abc.ABC):
     """
 
     class_id: str
-    session_header: Dict[str, str]
+    session: Union[requests.Session, requests_cache.CachedSession]
     today_date: str = datetime.datetime.today().strftime("%Y-%m-%d")
 
-    def __init__(self, headers: Dict[str, str]):
+    def __init__(self, headers: Dict[str, str]) -> None:
         super().__init__()
         self.class_id = ""
-        self.session_header = headers
-        self.__install_cache()
+        self.session = retryable_session()
+        self.session.headers.update(headers)
 
     # Abstract Methods
     @abc.abstractmethod
@@ -76,27 +78,19 @@ class AbstractProvider(abc.ABC):
             f"Downloaded {response.url} (Cache = {response.from_cache if MtgjsonConfig().use_cache else False})"
         )
 
-    # Private Methods
-    def __install_cache(self) -> None:
-        """
-        Initiate the MTGJSON cache for requests
-        (Useful for development and re-running often)
-        """
-        if MtgjsonConfig().use_cache:
-            constants.CACHE_PATH.mkdir(exist_ok=True)
-            requests_cache.install_cache(
-                str(constants.CACHE_PATH.joinpath(self.get_class_name()))
-            )
-
-    @staticmethod
     def generic_generate_today_price_dict(
+        self,
         third_party_to_mtgjson: Dict[str, Set[Any]],
         price_data_rows: List[Dict[str, Any]],
         card_platform_id_key: str,
         default_prices_object: MtgjsonPricesObject,
         foil_key: str,
         retail_key: Optional[str] = None,
+        retail_quantity_key: Optional[str] = None,
         buy_key: Optional[str] = None,
+        buy_quantity_key: Optional[str] = None,
+        etched_key: Optional[str] = None,
+        etched_value: Optional[str] = None,
     ) -> Dict[str, MtgjsonPricesObject]:
         """
         Generically convert price data to MTGJSON data format
@@ -106,11 +100,16 @@ class AbstractProvider(abc.ABC):
         :param default_prices_object: Default prices object for the price points
         :param foil_key: ID in each price data row to determine if card is foil or non-foil
         :param retail_key: Optional determination key to see if we have sell prices
+        :param retail_quantity_key: Optional determination key to check for quantity, for pruning
         :param buy_key: Optional determination key to see if we have buy prices
+        :param buy_quantity_key: Optional determination key to check for quantity, for pruning
+        :param etched_key: Optional determination key to see if we have an etched card
+        :param etched_value: Optional value to find in etched_key to see if etched card or not
         :return Today's price setup in MTGJSON Price Format
         """
-
-        today_dict: Dict[str, MtgjsonPricesObject] = {}
+        today_dict: Dict[str, MtgjsonPricesObject] = defaultdict(
+            lambda: copy.copy(default_prices_object)
+        )
 
         for data_row in price_data_rows:
             third_party_id = str(data_row[card_platform_id_key])
@@ -119,20 +118,42 @@ class AbstractProvider(abc.ABC):
 
             mtgjson_uuids = third_party_to_mtgjson[third_party_id]
             for mtgjson_uuid in mtgjson_uuids:
-                if mtgjson_uuid not in today_dict:
-                    today_dict[mtgjson_uuid] = copy.copy(default_prices_object)
+                is_foil = str(data_row[foil_key]).lower() == "true"
+                is_etched = bool(
+                    etched_key and etched_value in data_row.get(etched_key, {})
+                )
 
-                if data_row[foil_key] == "true":
-                    if retail_key:
-                        today_dict[mtgjson_uuid].sell_foil = float(data_row[retail_key])
-                    if buy_key:
-                        today_dict[mtgjson_uuid].buy_foil = float(data_row[buy_key])
-                else:
-                    if retail_key:
-                        today_dict[mtgjson_uuid].sell_normal = float(
-                            data_row[retail_key]
-                        )
-                    if buy_key:
-                        today_dict[mtgjson_uuid].buy_normal = float(data_row[buy_key])
+                if retail_key and not (
+                    retail_quantity_key and data_row.get(retail_quantity_key, 0) == 0
+                ):
+                    price_field_name = self.get_price_field_name(
+                        is_foil, is_etched, True
+                    )
+                    price = float(data_row[retail_key])
+                    setattr(today_dict[mtgjson_uuid], price_field_name, price)
+
+                if buy_key and not (
+                    buy_quantity_key and data_row.get(buy_quantity_key, 0) == 0
+                ):
+                    price_field_name = self.get_price_field_name(
+                        is_foil, is_etched, False
+                    )
+                    price = float(data_row[buy_key])
+                    setattr(today_dict[mtgjson_uuid], price_field_name, price)
 
         return today_dict
+
+    @staticmethod
+    def get_price_field_name(is_foil: bool, is_etched: bool, is_sell: bool) -> str:
+        """
+        Determine what MtgjsonPricesObject field needs to be set based on params
+        :param is_foil: Is the card foil?
+        :param is_etched: Is the card (foil) etched?
+        :param is_sell: Is the card a sell option? (Or a buy option?)
+        :return MtgjsonPricesObject key to set
+        """
+        if is_etched:
+            return "sell_etched" if is_sell else "buy_etched"
+        if is_foil:
+            return "sell_foil" if is_sell else "buy_foil"
+        return "sell_normal" if is_sell else "buy_normal"

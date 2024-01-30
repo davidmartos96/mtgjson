@@ -2,7 +2,7 @@
 MTGJSON Singular Card Object
 """
 import json
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional
 
 from .. import constants
 from ..classes.mtgjson_foreign_data import MtgjsonForeignDataObject
@@ -14,10 +14,10 @@ from ..classes.mtgjson_prices import MtgjsonPricesObject
 from ..classes.mtgjson_purchase_urls import MtgjsonPurchaseUrlsObject
 from ..classes.mtgjson_related_cards import MtgjsonRelatedCardsObject
 from ..classes.mtgjson_rulings import MtgjsonRulingObject
-from ..utils import to_camel_case
+from .json_object import JsonObject
 
 
-class MtgjsonCardObject:
+class MtgjsonCardObject(JsonObject):
     """
     MTGJSON Singular Card Object
     """
@@ -57,6 +57,7 @@ class MtgjsonCardObject:
     has_non_foil: Optional[bool]  # Deprecated - Remove in 5.3.0
     identifiers: MtgjsonIdentifiersObject
     is_alternative: Optional[bool]
+    is_foil: Optional[bool]
     is_full_art: Optional[bool]
     is_funny: Optional[bool]
     is_online_only: Optional[bool]
@@ -237,14 +238,16 @@ class MtgjsonCardObject:
         if self.number == other.number:
             return self_side < other_side
 
-        self_number_clean = "".join(filter(str.isdigit, self.number)) or 100_000
+        self_number_clean = "".join(x for x in self.number if x.isdigit()) or "100000"
         self_number_clean_int = int(self_number_clean)
 
-        other_number_clean = "".join(filter(str.isdigit, other.number)) or 100_000
+        other_number_clean = "".join(x for x in other.number if x.isdigit()) or "100000"
         other_number_clean_int = int(other_number_clean)
 
         if self.number == self_number_clean and other.number == other_number_clean:
             if self_number_clean_int == other_number_clean_int:
+                if len(self_number_clean) != len(other_number_clean):
+                    return len(self_number_clean) < len(other_number_clean)
                 return self_side < other_side
             return self_number_clean_int < other_number_clean_int
 
@@ -259,7 +262,15 @@ class MtgjsonCardObject:
             return self_number_clean_int < other_number_clean_int
 
         if self_number_clean == other_number_clean:
+            if not self_side and not other_side:
+                return bool(self.number < other.number)
             return self_side < other_side
+
+        if self_number_clean_int == other_number_clean_int:
+            if len(self_number_clean) != len(other_number_clean):
+                return len(self_number_clean) < len(other_number_clean)
+            return self_side < other_side
+
         return self_number_clean_int < other_number_clean_int
 
     def set_illustration_ids(self, illustration_ids: List[str]) -> None:
@@ -336,7 +347,7 @@ class MtgjsonCardObject:
         """
         return self.__atomic_keys
 
-    def build_keys_to_skip(self) -> Set[str]:
+    def build_keys_to_skip(self) -> Iterable[str]:
         """
         Build this object's instance of what keys to skip under certain circumstances
         :return What keys to skip over
@@ -354,16 +365,3 @@ class MtgjsonCardObject:
                     excluded_keys.add(key)
 
         return excluded_keys
-
-    def to_json(self) -> Dict[str, Any]:
-        """
-        Support json.dump()
-        :return: JSON serialized object
-        """
-        skip_keys = self.build_keys_to_skip()
-
-        return {
-            to_camel_case(key): value
-            for key, value in self.__dict__.items()
-            if "__" not in key and not callable(value) and key not in skip_keys
-        }
