@@ -88,6 +88,9 @@ class GitHubDecksProvider(AbstractProvider):
                 zip_list = [
                     ("cards", mtgjson_deck.main_board),
                     ("sideboard", mtgjson_deck.side_board),
+                    ("planarDeck", mtgjson_deck.side_board),
+                    ("displayCommander", mtgjson_deck.side_board),
+                    ("schemeDeck", mtgjson_deck.side_board),
                     ("commander", mtgjson_deck.commander),
                 ]
                 for decks_key, mtgjson_deck_list in zip_list:
@@ -149,9 +152,20 @@ class GitHubDecksProvider(AbstractProvider):
                 this_deck.main_board = parallel_call(
                     build_single_card, deck["cards"], fold_list=True
                 )
+
                 this_deck.side_board = parallel_call(
                     build_single_card, deck["sideboard"], fold_list=True
                 )
+                this_deck.side_board += parallel_call(
+                    build_single_card, deck["planarDeck"], fold_list=True
+                )
+                this_deck.side_board += parallel_call(
+                    build_single_card, deck["displayCommander"], fold_list=True
+                )
+                this_deck.side_board += parallel_call(
+                    build_single_card, deck["schemeDeck"], fold_list=True
+                )
+                
                 this_deck.commander = parallel_call(
                     build_single_card, deck["commander"], fold_list=True
                 )
