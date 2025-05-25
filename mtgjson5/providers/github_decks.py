@@ -201,6 +201,7 @@ def build_single_card(card: Dict[str, Any]) -> List[Dict[str, Any]]:
             cards.append(copy.deepcopy(mtgjson_card))
 
     if not cards:
-        LOGGER.warning(f"No matches found for {card}")
+        raise Exception(f"No matches found for {card}")
+        # LOGGER.warning(f"No matches found for {card}")
 
     return cards
