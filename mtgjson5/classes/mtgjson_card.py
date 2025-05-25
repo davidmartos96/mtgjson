@@ -60,6 +60,7 @@ class MtgjsonCardObject(JsonObject):
     is_foil: Optional[bool]
     is_full_art: Optional[bool]
     is_funny: Optional[bool]
+    is_game_changer: Optional[bool]
     is_online_only: Optional[bool]
     is_oversized: Optional[bool]
     is_promo: Optional[bool]
@@ -94,7 +95,7 @@ class MtgjsonCardObject(JsonObject):
     purchase_urls: MtgjsonPurchaseUrlsObject
     rarity: str
     rebalanced_printings: List[str]
-    related_cards: MtgjsonRelatedCardsObject
+    related_cards: Optional[MtgjsonRelatedCardsObject]
     reverse_related: Optional[List[str]]
     rulings: Optional[List[MtgjsonRulingObject]]
     security_stamp: Optional[str]

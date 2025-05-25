@@ -11,7 +11,7 @@ from singleton_decorator import singleton
 from ..classes import MtgjsonPricesObject
 from ..mtgjson_config import MtgjsonConfig
 from ..providers.abstract import AbstractProvider
-from ..utils import get_all_cards_and_tokens
+from ..utils import get_all_entities
 
 LOGGER = logging.getLogger(__name__)
 
@@ -89,23 +89,27 @@ class CardHoarderProvider(AbstractProvider):
 
         # All Entries from CH, cutting off headers
         file_rows: List[str] = request_api_response.splitlines()[2:]
+        invalid_entries = 0
         for file_row in file_rows:
             card_row = file_row.split("\t")
 
-            mtgo_id = card_row[0]
+            mtgo_id = card_row[0].strip('"')
             card_uuids = mtgo_to_mtgjson_map.get(mtgo_id)
 
             if not card_uuids:
                 LOGGER.debug(f"CardHoarder {card_row} unable to be mapped, skipping")
+                invalid_entries += 1
                 continue
 
             if len(card_row) <= 6:
                 LOGGER.warning(f"CardHoarder entry {card_row} malformed, skipping")
+                invalid_entries += 1
                 continue
 
             for card_uuid in card_uuids:
-                mtgjson_price_map[card_uuid] = float(card_row[5])
+                mtgjson_price_map[card_uuid] = float(card_row[5].strip('"'))
 
+        LOGGER.info(f"Missing {invalid_entries}/{len(file_rows)} CardHoarder entries")
         return mtgjson_price_map
 
     def generate_today_price_dict(
@@ -163,7 +167,7 @@ class CardHoarderProvider(AbstractProvider):
         :return MTGO to MTGJSON mapping
         """
         mtgo_to_mtgjson: Dict[str, Set[str]] = defaultdict(set)
-        for card in get_all_cards_and_tokens(all_printings_path):
+        for card in get_all_entities(all_printings_path):
             identifiers = card["identifiers"]
             if "mtgoId" in identifiers:
                 mtgo_to_mtgjson[identifiers["mtgoId"]].add(card["uuid"])

@@ -65,8 +65,6 @@ class MtgjsonAtomicCardsObject(JsonObject):
             for dungeon in dungeons:
                 dungeon.update(
                     {
-                        "manaValue": 0.0,
-                        "convertedManaCost": 0.0,
                         "legalities": {},
                         "purchaseUrls": {},
                         "rulings": [],
@@ -104,6 +102,7 @@ class MtgjsonAtomicCardsObject(JsonObject):
 
             for foreign_data in atomic_card.get("foreignData", {}):
                 foreign_data.pop("multiverseId", None)
+                foreign_data.pop("identifiers", None)
 
             # Strip out the (a), (b) stuff
             values = self.__name_regex.findall(atomic_card["name"])

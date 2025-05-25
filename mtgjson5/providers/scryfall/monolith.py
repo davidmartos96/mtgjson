@@ -90,7 +90,7 @@ class ScryfallProvider(AbstractProvider):
         return all_cards
 
     @ratelimit.sleep_and_retry
-    @ratelimit.limits(calls=40, period=1)
+    @ratelimit.limits(calls=15, period=1)
     def download(
         self,
         url: str,
@@ -105,7 +105,7 @@ class ScryfallProvider(AbstractProvider):
         :param retry_ttl: How many times to retry if Chunk Error
         """
         try:
-            response = self.session.get(url)
+            response = self.session.get(url, timeout=10)
             self.log_download(response)
         except requests.exceptions.ChunkedEncodingError as error:
             if retry_ttl:

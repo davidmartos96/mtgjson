@@ -83,7 +83,14 @@ def parse_foreign(
             LOGGER.warning(f"Unable to get language {foreign_card}")
 
         if foreign_card["multiverse_ids"]:
-            card_foreign_entry.multiverse_id = foreign_card["multiverse_ids"][0]
+            card_foreign_entry.multiverse_id = foreign_card["multiverse_ids"][
+                0
+            ]  # Deprecated - Remove in 5.4.0
+            card_foreign_entry.identifiers.multiverse_id = str(
+                foreign_card["multiverse_ids"][0]
+            )
+
+        card_foreign_entry.identifiers.scryfall_id = foreign_card.get("id")
 
         if "card_faces" in foreign_card:
             if card_name.lower() == foreign_card["name"].split("/")[0].strip().lower():
@@ -465,9 +472,10 @@ def build_mtgjson_set(set_code: str) -> Optional[MtgjsonSetObject]:
     )
 
     # Building cards is a process
-    mtgjson_set.cards = build_base_mtgjson_cards(
-        set_code, set_release_date=mtgjson_set.release_date
-    )
+    if mtgjson_set.code != "MB1":
+        mtgjson_set.cards = build_base_mtgjson_cards(
+            set_code, set_release_date=mtgjson_set.release_date
+        )
     add_is_starter_option(set_code, mtgjson_set.search_uri, mtgjson_set.cards)
     add_rebalanced_to_original_linkage(mtgjson_set)
     relocate_miscellaneous_tokens(mtgjson_set)
@@ -763,7 +771,9 @@ def build_mtgjson_card(
     mtgjson_card = MtgjsonCardObject(is_token)
 
     mtgjson_card.name = scryfall_object["name"]
-    mtgjson_card.language = constants.LANGUAGE_MAP[scryfall_object["lang"]]
+    mtgjson_card.language = constants.LANGUAGE_MAP.get(
+        scryfall_object["lang"], "unknown"
+    )
     mtgjson_card.flavor_name = scryfall_object.get("flavor_name")
     mtgjson_card.set_code = scryfall_object["set"].upper()
     mtgjson_card.identifiers.scryfall_id = scryfall_object["id"]
@@ -787,7 +797,10 @@ def build_mtgjson_card(
 
         if face_data.get("flavor_name"):
             mtgjson_card.flavor_name = " // ".join(
-                [entry["flavor_name"] for entry in scryfall_object["card_faces"]]
+                [
+                    entry.get("flavor_name", face_data["flavor_name"])
+                    for entry in scryfall_object["card_faces"]
+                ]
             )
             mtgjson_card.face_flavor_name = face_data["flavor_name"]
 
@@ -880,6 +893,7 @@ def build_mtgjson_card(
     mtgjson_card.has_non_foil = "nonfoil" in scryfall_object.get("finishes", [])
     mtgjson_card.has_content_warning = scryfall_object.get("content_warning")
     mtgjson_card.is_full_art = scryfall_object.get("full_art")
+    mtgjson_card.is_game_changer = scryfall_object.get("game_changer")
     mtgjson_card.is_online_only = scryfall_object.get("digital")
     mtgjson_card.is_oversized = scryfall_object.get("oversized") or (
         mtgjson_card.set_code in ("OC21",)
@@ -1034,7 +1048,9 @@ def build_mtgjson_card(
                     and "Missing" in face_illustration_ids
                 ):
                     mtgjson_card.side = chr(face_id + 97)
-            else:
+            elif mtgjson_card.set_code.lower() == "adsk":
+                mtgjson_card.side = chr(face_id + 97)
+            elif mtgjson_card.face_name in face_names:
                 # Standard flip cards and such
                 # chr(97) = 'a', chr(98) = 'b', ...
                 mtgjson_card.side = chr(face_names.index(mtgjson_card.face_name) + 97)
@@ -1405,6 +1421,12 @@ def add_multiverse_bridge_ids(mtgjson_set: MtgjsonSetObject) -> None:
                 else "cardsphere_id"
             )
             setattr(mtgjson_card.identifiers, attr, str(rosetta_card_print["cs_id"]))
+            if rosetta_card_print["deckbox_id"]:
+                setattr(
+                    mtgjson_card.identifiers,
+                    "deckbox_id",
+                    str(rosetta_card_print["deckbox_id"]),
+                )
 
     mtgjson_set.cardsphere_set_id = (
         MultiverseBridgeProvider()
