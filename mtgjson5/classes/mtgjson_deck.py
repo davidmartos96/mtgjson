@@ -1,6 +1,7 @@
 """
 MTGJSON Singular Deck Object
 """
+
 import re
 from typing import Any, Dict, Iterable, List, Optional, Union
 
@@ -20,11 +21,13 @@ class MtgjsonDeckObject(JsonObject):
     commander: List[Union[MtgjsonCardObject, Dict[str, Any]]]
     planes: List[Union[MtgjsonCardObject, Dict[str, Any]]]
     schemes: List[Union[MtgjsonCardObject, Dict[str, Any]]]
+    tokens: List[Union[MtgjsonCardObject, Dict[str, Any]]]
 
     code: str
     name: str
     release_date: str
     sealed_product_uuids: Optional[List[str]]
+    source_set_codes: List[str]
     type: str
     file_name: str
 
@@ -44,6 +47,7 @@ class MtgjsonDeckObject(JsonObject):
         self.commander = []
         self.planes = []
         self.schemes = []
+        self.tokens = []
 
     def set_sanitized_name(self, name: str) -> None:
         """

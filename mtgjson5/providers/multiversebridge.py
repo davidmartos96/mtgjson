@@ -1,6 +1,7 @@
 """
 MultiverseBridge 3rd party provider
 """
+
 import logging
 import pathlib
 import time
@@ -81,7 +82,15 @@ class MultiverseBridgeProvider(AbstractProvider):
         :return Rosetta Stone of Set IDs
         """
         if not self.rosetta_stone_sets:
-            self.parse_rosetta_stone_sets(self.download(self.ROSETTA_STONE_SETS_URL))
+            try:
+                self.parse_rosetta_stone_sets(
+                    self.download(self.ROSETTA_STONE_SETS_URL)
+                )
+            except Exception:
+                LOGGER.error(
+                    "MultiverseBridge: Download cap exceeded, skipping for now"
+                )
+                self.rosetta_stone_sets = {"set_code": 12345}
         return self.rosetta_stone_sets
 
     def generate_today_price_dict(

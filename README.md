@@ -45,6 +45,7 @@ Over time, MTGJSON has gone through a number of transitions to bring the best pr
 - [CardKingdom](https://www.cardkingdom.com/?partner=mtgjson&utm_source=mtgjson&utm_medium=affiliate&utm_campaign=mtgjson)
 - [CardMarket](https://www.cardmarket.com/en/Magic?utm_campaign=card_prices&utm_medium=text&utm_source=mtgjson)
 - [Gatherer](https://gatherer.wizards.com)
+- [Manapool](https://manapool.com/?ref=mtgjson)
 - [MTG.wtf](https://mtg.wtf/)
 - [MTGBan](https://www.mtgban.com/)
 - [Scryfall](https://scryfall.com)
@@ -57,7 +58,7 @@ MTGJSON supplies precompiled databases at https://mtgjson.com/api/v5/. **This is
 
 As stated before, we pride ourselves on our documentation which can be found at https://mtgjson.com/. If you find anything to be unclear or ambiguous, please [open a ticket](https://github.com/mtgjson/mtgjson-website/issues) on our documentation repository so we can address your concern immediately.
 
-We fully rebuild our API data once a week (on Monday afternoons) and our price dataset once a day. You can poll the [Meta.json](https://mtgjson.com/api/v5/Meta.json) file to see when our data was last updated.  
+We fully rebuild our API data once a day. You can poll the [Meta.json](https://mtgjson.com/api/v5/Meta.json) file to see when our data was last updated.  
 
 ### For those who want to build MTGJSON locally  
 Most of our users shouldn't have a need to build MTGJSON locally. However, there are always exceptions and we aren't ones to judge.  
@@ -70,11 +71,11 @@ While MTGJSON will work on Windows, Mac, and Linux, we prefer working within the
 
 #### Install Python3
 MTGJSON is built on and tested against a wide range of Python3 versions. Currently, we maintain support for the following versions:
-- Python 3.8
-- Python 3.9
 - Python 3.10
 - Python 3.11
 - Python 3.12
+- Python 3.13
+- Python 3.14
 
 #### Install MTGJSON
 ##### Local Installation
@@ -119,6 +120,44 @@ Due to how the new system is built, a few advanced values can be set by the user
 - `MTGJSON5_DEBUG` When set to 1 or true, additional logging will be dumped to the output files
 - `MTGJSON5_OUTPUT_PATH` When set, MTGJSON will dump all outputs to a specific directory
     - Ex:  `MTGJSON5_OUTPUT_PATH=~/Desktop` will dump database files to `/home/USER/Desktop/mtgjson_build_5XXX` and log files to `/home/USER/Desktop/logs`
+
+### Testing with VCR Cassettes
+MTGJSON uses [VCR.py](https://vcrpy.readthedocs.io/) to record and replay HTTP interactions for deterministic offline testing. This allows tests to run without live network access while still validating against real API responses.
+
+#### Cassette Organization
+
+Cassettes are organized by **host** (e.g., `api.scryfall.com.yml`, `api.cardmarket.com.yml`) so multiple tests can share the same cassette file. This makes maintenance easier as you add more tests.
+
+#### Workflow
+
+**Normal local development (no flag):**
+```bash
+# Default: uses "once" mode - replays from cassettes if they exist,
+# records new cassettes if they're missing
+pytest tests/mtgjson5/providers/scryfall/
+```
+
+**Record new cassettes:**
+```bash
+# Use "all" mode to overwrite existing cassettes with fresh recordings
+pytest tests/mtgjson5/providers/scryfall/ --record-mode=all
+```
+
+**Run tests in strict offline mode:**
+```bash
+# Use "none" mode - only replays, fails if any cassette is missing
+pytest tests/mtgjson5/providers/scryfall/ --record-mode=none
+
+# Or set MTGJSON_OFFLINE_MODE environment variable (used in CI)
+MTGJSON_OFFLINE_MODE=1 pytest tests/
+```
+
+**Recording modes:**
+- `once` - Record new cassettes if missing, replay existing ones (**default for local dev**)
+- `none` - Only replay, fail if cassette missing (enforced in CI via `MTGJSON_OFFLINE_MODE`)
+- `all` - Always record, overwrite existing cassettes
+
+Cassettes are stored in `tests/cassettes/` organized by host and should be committed to the repository.
 
 ## Licensing  
 MTGJSON is a freely available product under the [MIT License](https://github.com/mtgjson/mtgjson/blob/master/LICENSE.txt), allowing our users to enjoy Magic: the Gathering data free of charge, in perpetuity.

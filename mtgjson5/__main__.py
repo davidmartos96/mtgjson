@@ -1,6 +1,7 @@
 """
 MTGJSON Main Executor
 """
+
 import sys
 import gevent.monkey  # isort:skip
 
@@ -20,6 +21,9 @@ from mtgjson5 import constants
 from mtgjson5.utils import init_logger, load_local_set_data
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+init_logger()
+LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 def build_mtgjson_sets(
@@ -195,7 +199,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    init_logger()
-    LOGGER: logging.Logger = logging.getLogger(__name__)
     #main()
     my_main()

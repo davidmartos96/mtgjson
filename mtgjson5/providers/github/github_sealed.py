@@ -1,18 +1,20 @@
 """
 Sealed Products via GitHub 3rd party provider
 """
+
 import logging
 from typing import Any, Dict, List, Optional, Union
 
 from singleton_decorator import singleton
 
-from ..classes import (
+from ...classes import (
     MtgjsonSealedProductCategory,
     MtgjsonSealedProductObject,
     MtgjsonSealedProductSubtype,
 )
-from ..providers.abstract import AbstractProvider
-from ..utils import to_snake_case
+from ...mtgjson_config import MtgjsonConfig
+from ...providers.abstract import AbstractProvider
+from ...utils import to_snake_case
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,8 +25,12 @@ class GitHubSealedProvider(AbstractProvider):
     GitHubSealedProvider container
     """
 
-    sealed_contents_url: str = "https://github.com/mtgjson/mtg-sealed-content/blob/main/outputs/contents.json?raw=true"
-    sealed_products_url: str = "https://github.com/mtgjson/mtg-sealed-content/blob/main/outputs/products.json?raw=true"
+    sealed_contents_url: str = (
+        "https://github.com/mtgjson/mtg-sealed-content/blob/main/outputs/contents.json?raw=true"
+    )
+    sealed_products_url: str = (
+        "https://github.com/mtgjson/mtg-sealed-content/blob/main/outputs/products.json?raw=true"
+    )
     sealed_products: Dict[str, Any]
     sealed_contents: Dict[str, Any]
 
@@ -41,7 +47,8 @@ class GitHubSealedProvider(AbstractProvider):
         Construct the Authorization header
         :return: Authorization header
         """
-        return {}
+        __github_token = MtgjsonConfig().get("GitHub", "api_token")
+        return {"Authorization": f"Bearer {__github_token}"}
 
     def download(
         self, url: str, params: Optional[Dict[str, Union[str, int]]] = None

@@ -18,13 +18,13 @@ jobs:
     steps:
       - name: Checkout Repository
         id: checkout-repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Get Branch Name
         id: branch-name
-        uses: tj-actions/branch-names@v8
+        uses: tj-actions/branch-names@v9
 
       - id: commit
         uses: prompt/actions-commit-hash@v3

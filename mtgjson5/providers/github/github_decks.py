@@ -1,6 +1,7 @@
 """
 Decks via GitHub 3rd party provider
 """
+
 import copy
 import json
 import logging
@@ -10,12 +11,12 @@ from typing import Any, Dict, Iterator, List, Optional, Union
 
 from singleton_decorator import singleton
 
-from ..classes import MtgjsonCardObject
-from ..classes.mtgjson_deck import MtgjsonDeckObject
-from ..compiled_classes.mtgjson_structures import MtgjsonStructuresObject
-from ..mtgjson_config import MtgjsonConfig
-from ..parallel_call import parallel_call
-from ..providers.abstract import AbstractProvider
+from ...classes import MtgjsonCardObject
+from ...classes.mtgjson_deck import MtgjsonDeckObject
+from ...compiled_classes.mtgjson_structures import MtgjsonStructuresObject
+from ...mtgjson_config import MtgjsonConfig
+from ...parallel_call import parallel_call
+from ...providers.abstract import AbstractProvider
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,8 +28,12 @@ class GitHubDecksProvider(AbstractProvider):
     GitHubDecksProvider container
     """
 
-    decks_api_url: str = "https://github.com/taw/magic-preconstructed-decks-data/blob/master/decks_v2.json?raw=true"
-    decks_uuid_api_url: str = "https://github.com/mtgjson/mtg-sealed-content/blob/main/outputs/deck_map.json?raw=True"
+    decks_api_url: str = (
+        "https://github.com/taw/magic-preconstructed-decks-data/blob/master/decks_v2.json?raw=true"
+    )
+    decks_uuid_api_url: str = (
+        "https://github.com/mtgjson/mtg-sealed-content/blob/main/outputs/deck_map.json?raw=True"
+    )
     all_printings_file: pathlib.Path = MtgjsonConfig().output_path.joinpath(
         f"{MtgjsonStructuresObject().all_printings}.json"
     )
@@ -47,7 +52,8 @@ class GitHubDecksProvider(AbstractProvider):
         Construct the Authorization header
         :return: Authorization header
         """
-        return {}
+        __github_token = MtgjsonConfig().get("GitHub", "api_token")
+        return {"Authorization": f"Bearer {__github_token}"}
 
     @staticmethod
     def _build_mtgjson_deck_card(card: Dict[str, Any]) -> MtgjsonCardObject:
@@ -60,6 +66,7 @@ class GitHubDecksProvider(AbstractProvider):
         mtgjson_card.uuid = card["mtgjson_uuid"]
         mtgjson_card.count = card["count"]
         mtgjson_card.is_foil = card["foil"]
+        mtgjson_card.is_etched = card.get("etched", False)
         del mtgjson_card.colors
         del mtgjson_card.identifiers
         del mtgjson_card.purchase_urls
@@ -84,6 +91,9 @@ class GitHubDecksProvider(AbstractProvider):
                 mtgjson_deck.set_sanitized_name(mtgjson_deck.name)
                 mtgjson_deck.type = deck["type"]
                 mtgjson_deck.release_date = deck["release_date"]
+                mtgjson_deck.source_set_codes = list(
+                    map(str.upper, deck["sourceSetCodes"])
+                )
 
                 zip_list = [
                     ("cards", mtgjson_deck.main_board),
@@ -92,6 +102,7 @@ class GitHubDecksProvider(AbstractProvider):
                     ("commander", mtgjson_deck.commander),
                     ("planarDeck", mtgjson_deck.planes),
                     ("schemeDeck", mtgjson_deck.schemes),
+                    ("tokens", mtgjson_deck.tokens),
                 ]
                 for decks_key, mtgjson_deck_list in zip_list:
                     for card in deck.get(decks_key, []):
@@ -147,6 +158,7 @@ class GitHubDecksProvider(AbstractProvider):
             this_deck.set_sanitized_name(this_deck.name)
             this_deck.type = deck["type"]
             this_deck.release_date = deck["release_date"]
+            this_deck.source_set_codes = list(map(str.upper, deck["sourceSetCodes"]))
 
             try:
                 this_deck.main_board = parallel_call(
@@ -167,6 +179,9 @@ class GitHubDecksProvider(AbstractProvider):
                 )
                 this_deck.schemes = parallel_call(
                     build_single_card, deck["schemeDeck"], fold_list=True
+                )
+                this_deck.tokens = parallel_call(
+                    build_single_card, deck["tokens"], fold_list=True
                 )
             except KeyError as error:
                 LOGGER.warning(
@@ -193,10 +208,11 @@ def build_single_card(card: Dict[str, Any]) -> List[Dict[str, Any]]:
         LOGGER.warning(f"Set {card['set_code'].upper()} not found for {card['name']}")
         return []
 
-    for mtgjson_card in set_to_build_from["cards"]:
+    for mtgjson_card in set_to_build_from["cards"] + set_to_build_from["tokens"]:
         if card["mtgjson_uuid"] == mtgjson_card["uuid"]:
             mtgjson_card["count"] = card["count"]
             mtgjson_card["isFoil"] = card["foil"]
+            mtgjson_card["isEtched"] = card.get("etched", False)
             cards.append(copy.deepcopy(mtgjson_card))
 
     if not cards:

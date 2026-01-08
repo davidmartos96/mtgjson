@@ -1,6 +1,7 @@
 """
 MTGJSON Singular Card Object
 """
+
 import json
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -43,6 +44,7 @@ class MtgjsonCardObject(JsonObject):
     face_flavor_name: Optional[str]
     face_mana_value: float
     face_name: Optional[str]
+    face_printed_name: Optional[str]
     finishes: List[str]
     first_printing: Optional[str]
     flavor_name: Optional[str]
@@ -58,6 +60,7 @@ class MtgjsonCardObject(JsonObject):
     identifiers: MtgjsonIdentifiersObject
     is_alternative: Optional[bool]
     is_foil: Optional[bool]
+    is_etched: Optional[bool]
     is_full_art: Optional[bool]
     is_funny: Optional[bool]
     is_game_changer: Optional[bool]
@@ -90,6 +93,9 @@ class MtgjsonCardObject(JsonObject):
     other_face_ids: List[str]
     power: str
     prices: MtgjsonPricesObject
+    printed_name: Optional[str]
+    printed_type: Optional[str]
+    printed_text: Optional[str]
     printings: List[str]
     promo_types: List[str]
     purchase_urls: MtgjsonPurchaseUrlsObject

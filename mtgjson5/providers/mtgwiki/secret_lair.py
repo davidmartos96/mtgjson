@@ -8,8 +8,8 @@ from ...providers.abstract import AbstractProvider
 
 
 @singleton
-class FandomProviderSecretLair(AbstractProvider):
-    PAGE_URL = "https://mtg.fandom.com/wiki/Secret_Lair/Drop_Series"
+class MtgWikiProviderSecretLair(AbstractProvider):
+    PAGE_URL = "https://mtg.wiki/page/Secret_Lair/Drop_Series"
     logger: logging.Logger
 
     def __init__(self, headers: Optional[Dict[str, str]] = None):
@@ -23,7 +23,7 @@ class FandomProviderSecretLair(AbstractProvider):
         self, url: str = "", params: Optional[Dict[str, Union[str, int]]] = None
     ) -> Dict[str, str]:
         """
-        Download Fandom Secret Lair page and parse it out
+        Download MTG.Wiki Secret Lair page and parse it out
         for user consumption
         :returns Mapping of Card ID to Secret Lair Drop Name
         """
@@ -33,10 +33,13 @@ class FandomProviderSecretLair(AbstractProvider):
         return self.__parse_secret_lair_table(response.text)
 
     def __parse_secret_lair_table(self, page_text: str) -> Dict[str, str]:
-        results = {}
+        results: Dict[str, str] = {}
 
         soup = bs4.BeautifulSoup(page_text, "html.parser")
         table = soup.find("table", {"class": "wikitable sortable"})
+        if not table:
+            return results
+
         table_rows = table.find_all("tr")
         for index, table_row in enumerate(table_rows[1:]):
             table_cols = table_row.find_all("td")
@@ -47,6 +50,10 @@ class FandomProviderSecretLair(AbstractProvider):
                 next_tr_cols = table_rows[index + 2].find_all("td")
                 extra_card_numbers = f",{next_tr_cols[0].text}"
             elif len(table_cols) < 3:
+                continue
+
+            if not table_cols[0].text.strip().isdigit():
+                # Not a true Secret Lair row
                 continue
 
             secret_lair_name = table_cols[1].text.strip()
@@ -72,7 +79,15 @@ class FandomProviderSecretLair(AbstractProvider):
         return sum(
             (
                 (
-                    list(range(*[int(j) + k for k, j in enumerate(i.split("-"))]))
+                    list(
+                        range(
+                            *[
+                                int(j) + k
+                                for k, j in enumerate(i.split("-"))
+                                if len(j) > 0
+                            ]
+                        )
+                    )
                     if "-" in i
                     else [int(i)]
                 )
